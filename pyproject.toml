@@ -1,11 +1,13 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "kdecustomizer"
 version = "0.1.0"
 description = "Build and apply complete KDE Plasma 6 themes from a single spec file"
+license = "GPL-3.0-or-later"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
 

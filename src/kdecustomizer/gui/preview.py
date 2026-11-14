@@ -470,7 +470,7 @@ class Preview(QWidget):
         font.setStyleHint(QFont.Monospace)
         p.setFont(font)
         lines = [
-            [("dman@cachyos", "Color2"), (" ", None), ("~/themes", "Color4"), (f" $ kdec build {self.theme.slug.lower()}.toml", None)],
+            [("user@plasma", "Color2"), (" ", None), ("~/themes", "Color4"), (f" $ kdec build {self.theme.slug.lower()}.toml", None)],
             [(f"built build/{self.theme.slug}", None)],
             [("$ ", None), ("ls", None)],
             [("install.sh", "Color2"), ("  ", None), ("lookandfeel/", "Color4"), ("  ", None),
