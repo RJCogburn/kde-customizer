@@ -1,0 +1,43 @@
+id = "org.kdecustomizer.midnight"
+name = "Midnight"
+author = "dman"
+description = "Deep indigo dark theme with a violet accent"
+icons = "breeze-dark"
+cursors = "breeze_cursors"
+widget_style = "Breeze"
+plasma_style = "default"
+konsole = true
+
+[palette]
+background = "#14151f"
+surface = "#1d1f2d"
+foreground = "#e4e4f0"
+accent = "#8b7cf6"
+positive = "#4ade80"
+neutral = "#facc15"
+negative = "#f87171"
+
+[decoration]
+library = "org.kde.breeze"
+theme = "Breeze"
+buttons_left = "M"
+buttons_right = "IAX"
+
+[fonts]
+fixed = "JetBrains Mono,10"
+
+[[panels]]
+location = "bottom"
+height = 46
+floating = true
+alignment = "center"
+length_mode = "fit"
+widgets = ["org.kde.plasma.kickoff", "org.kde.plasma.icontasks", "org.kde.plasma.marginsseparator", "org.kde.plasma.systemtray", "org.kde.plasma.digitalclock"]
+
+# Raw config writes (kwriteconfig6). File -> group -> key = value. Nested groups: "A/B".
+[tweaks.kwinrc.Plugins]
+blurEnabled = true
+wobblywindowsEnabled = false
+
+[tweaks.kwinrc.Effect-blur]
+BlurStrength = 8
