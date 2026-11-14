@@ -10,6 +10,19 @@ Target system: Plasma 6.8, Qt 6, Python 3.11+ (dev box runs 3.14, CachyOS).
 - `build.py` — writes everything to `build/<Slug>/` **plus a standalone `install.sh`**. Installing/applying always goes
   through that script (CLI and GUI both run it), so built themes are shareable without this tool.
 - `cli.py` (`kdec`) and `gui/app.py` (`kdec-gui`, PySide6) are thin front ends — keep logic in core modules.
+- `system.py` — lists installed icon/cursor/Plasma/widget styles (editor dropdowns + AI prompt).
+- `ai.py` — provider-neutral AI design: `reference()` (spec guide + installed themes), `parse_reply()`,
+  `check()` (contrast + not-installed), `generate()` (Claude via `anthropic` SDK; others via OpenAI-compatible
+  `/chat/completions` with urllib; one automatic fix-up round when `check()` complains).
+
+## GUI
+`gui/app.py` = editor tabs (left) + `gui/preview.py` live preview (right) + `gui/ai_panel.py` on top.
+The preview paints a mock desktop on a fixed 1280x800 canvas from `colors.scheme()` / `konsole.ansi()` — the
+same functions the generators use, so never derive colors in the GUI. Icons come from the theme's icon set via
+`IconCache` (temporarily switches `QIcon.themeName`). AI work runs in a QThread; connect worker signals to
+bound methods of a widget (lambdas would run on the worker thread). AI provider settings live in QSettings
+(`~/.config/kdecustomizer/kdec-gui.conf`).
+Offscreen screenshots for checking UI changes: `QT_QPA_PLATFORM=offscreen`, `w.grab().save(...)`.
 
 ## What Look-and-Feel can and can't do
 `plasma-apply-lookandfeel` only applies the keys in `contents/defaults` (colors, widget style, icons, plasma style,
@@ -25,7 +38,13 @@ kdec apply examples/midnight.toml [--layout] [--dry-run]
 kdec export examples/midnight.toml [out.tar.gz]  # shareable archive: build + wallpaper + theme.toml; recipient runs ./install.sh
 kdec layout examples/midnight.toml         # live panel/wallpaper script via plasmashell evaluateScript
 kdec-gui examples/midnight.toml
+kdec check mytheme.toml                    # contrast + installed-theme warnings
+kdec ai "warm autumn, dock panel" [--from mytheme.toml] [--provider claude|openai|gemini|openrouter|ollama|lmstudio --model M]
+kdec ai "..." --prompt-only                # prompt to paste into any chat AI
+kdec ai-guide                              # spec guide for coding agents — read it before writing a theme spec
 ```
+AI extras: `pip install -e '.[ai]'` (anthropic SDK + Pillow). Never run `kdec ai` against a real provider in
+tests (it bills); use a local fake server on `--base-url` / `ANTHROPIC_BASE_URL`.
 `apply` changes the live desktop — use `--dry-run` when testing generator changes.
 
 ## Plasma style (`[plasma] generate = true`)
@@ -41,7 +60,7 @@ and deletes `~/.cache/plasma_theme_<Slug>*` so re-installs pick up new colors. `
 4. **Icons** — recolor an existing icon theme (folder colors from accent) into a new inherited theme.
 5. **Cursors, SDDM, splash** — SDDM needs root (pkexec); splash = QML package in the LnF.
 6. **Snapshot** — `kdec snapshot` to read the current desktop config into a spec.
-7. GUI: live preview, panel editor, tweaks editor.
+7. GUI: tweaks editor; preview of the Kickoff menu / dialogs.
 
 ## Portability rule
 Built output must not contain paths from the build machine. Wallpaper is bundled in `wallpapers/` and set by

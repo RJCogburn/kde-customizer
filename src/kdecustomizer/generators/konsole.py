@@ -1,7 +1,7 @@
 """Konsole color scheme + profile — go to ~/.local/share/konsole/."""
 from __future__ import annotations
 
-from ..color import lighten, mix, shift, to_kde
+from ..color import RGB, lighten, mix, parse, shift, to_kde
 from ..spec import Theme
 
 # ANSI slots derived from the palette; hues fixed, tuned toward fg/bg for cohesion.
@@ -17,18 +17,16 @@ _ANSI = {
 }
 
 
-def colorscheme(theme: Theme) -> str:
+def ansi(theme: Theme) -> dict[str, RGB]:
+    """Terminal colors in .colorscheme order. Used by colorscheme() and the GUI preview."""
     p = theme.palette.resolved()
     dark = theme.dark
-    out = ["[General]", f"Description={theme.name}", "Opacity=1", "Wallpaper=", ""]
-
-    def entry(name, c):
-        out.extend([f"[{name}]", f"Color={to_kde(c)}", ""])
-
-    entry("Background", p.background)
-    entry("BackgroundIntense", shift(p.background, 0.05, dark))
-    entry("Foreground", p.foreground)
-    entry("ForegroundIntense", lighten(p.foreground, 0.2) if dark else p.foreground)
+    c: dict[str, RGB] = {
+        "Background": parse(p.background),
+        "BackgroundIntense": shift(p.background, 0.05, dark),
+        "Foreground": parse(p.foreground),
+        "ForegroundIntense": lighten(p.foreground, 0.2) if dark else parse(p.foreground),
+    }
     for slot, hue in _ANSI.items():
         if slot == "Color0":
             base = shift(p.background, 0.15, dark)
@@ -36,8 +34,15 @@ def colorscheme(theme: Theme) -> str:
             base = mix(p.foreground, p.background, 0.15)
         else:
             base = mix(hue, p.foreground, 0.1)
-        entry(slot, base)
-        entry(slot + "Intense", lighten(base, 0.2))
+        c[slot] = base
+        c[slot + "Intense"] = lighten(base, 0.2)
+    return c
+
+
+def colorscheme(theme: Theme) -> str:
+    out = ["[General]", f"Description={theme.name}", "Opacity=1", "Wallpaper=", ""]
+    for name, c in ansi(theme).items():
+        out.extend([f"[{name}]", f"Color={to_kde(c)}", ""])
     return "\n".join(out)
 
 

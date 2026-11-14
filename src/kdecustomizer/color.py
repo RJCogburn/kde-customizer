@@ -42,6 +42,12 @@ def luminance(c: RGB | str) -> float:
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
+def contrast(a: RGB | str, b: RGB | str) -> float:
+    """WCAG contrast ratio, 1..21. Body text wants >= 4.5."""
+    la, lb = sorted((luminance(a), luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
 def is_dark(c: RGB | str) -> bool:
     return luminance(c) < 0.25
 

@@ -1,11 +1,12 @@
 """KDE color scheme (.colors) generator — goes to ~/.local/share/color-schemes/."""
 from __future__ import annotations
 
-from ..color import luminance, mix, shift, to_kde
+from ..color import RGB, luminance, mix, shift, to_kde
 from ..spec import Theme
 
 
-def generate(theme: Theme) -> str:
+def scheme(theme: Theme) -> dict[str, dict[str, RGB | str]]:
+    """Every color role, derived from the palette. Used by generate() and the GUI preview."""
     p = theme.palette.resolved()
     dark = theme.dark
     bg, surf, fg, acc = p.background, p.surface, p.foreground, p.accent
@@ -43,7 +44,21 @@ def generate(theme: Theme) -> str:
         "Colors:Tooltip": role(surf, bg, fg),
         "Colors:View": role(view_bg, shift(view_bg, 0.03, dark), fg),
         "Colors:Window": role(bg, surf, fg),
+        "WM": {
+            "activeBackground": surf,
+            "activeBlend": fg,
+            "activeForeground": fg,
+            "inactiveBackground": bg,
+            "inactiveBlend": mix(fg, bg, 0.45),
+            "inactiveForeground": mix(fg, bg, 0.45),
+        },
     }
+    return sections
+
+
+def generate(theme: Theme) -> str:
+    sections = scheme(theme)
+    bg = theme.palette.background
 
     lines: list[str] = [
         "[ColorEffects:Disabled]",
@@ -59,6 +74,8 @@ def generate(theme: Theme) -> str:
         "",
     ]
     for name, keys in sections.items():
+        if name == "WM":
+            continue
         lines.append(f"[{name}]")
         lines += [f"{k}={to_kde(v)}" for k, v in keys.items()]
         lines.append("")
@@ -72,12 +89,7 @@ def generate(theme: Theme) -> str:
         "contrast=4",
         "",
         "[WM]",
-        f"activeBackground={to_kde(surf)}",
-        f"activeBlend={to_kde(fg)}",
-        f"activeForeground={to_kde(fg)}",
-        f"inactiveBackground={to_kde(bg)}",
-        f"inactiveBlend={to_kde(mix(fg, bg, 0.45))}",
-        f"inactiveForeground={to_kde(mix(fg, bg, 0.45))}",
+        *[f"{k}={to_kde(v)}" for k, v in sections["WM"].items()],
         "",
     ]
     return "\n".join(lines)
