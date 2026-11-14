@@ -35,9 +35,9 @@ def default_dir(theme: Theme, spec_path: str | Path | None) -> Path:
 def _hue_name(hex_color: str) -> str:
     r, g, b = (v / 255 for v in color.parse(hex_color))
     h, l, s = colorsys.rgb_to_hls(r, g, b)
-    if s < 0.15:
+    if s < 0.25 or (l < 0.2 and s < 0.4):  # near-neutrals and very dark tints read as gray/black
         return "white" if l > 0.8 else "black" if l < 0.2 else "silver gray" if l > 0.5 else "graphite gray"
-    names = [(15, "red"), (40, "orange"), (52, "gold"), (65, "yellow"), (150, "green"), (190, "teal"),
+    names = [(12, "red"), (34, "orange"), (52, "gold"), (65, "yellow"), (150, "green"), (190, "teal"),
              (250, "blue"), (275, "indigo"), (320, "violet"), (345, "pink"), (360, "red")]
     name = next(n for limit, n in names if h * 360 <= limit)
     return ("pale " if l > 0.75 else "deep " if l < 0.3 else "") + name
