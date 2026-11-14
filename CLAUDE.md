@@ -16,6 +16,17 @@ Target system: Plasma 6.8, Qt 6, Python 3.11+ (dev box runs 3.14, CachyOS).
   `check()` (contrast + not-installed), `generate()` (Claude via `anthropic` SDK; others via OpenAI-compatible
   `/chat/completions` with urllib; one automatic fix-up round when `check()` complains).
 
+## Icons
+- `iconset.py` — generated icon theme `<Slug>-Icons`: recolors the base theme's folder/place SVGs (hex fills
+  near the base's dominant folder hue -> accent, HLS shift) and `Inherits=` the base. Papirus color variants
+  (`folder-red*`…) and symbolic icons are skipped. Any icon name present in our theme must exist in all the
+  base's sizes for it, or KDE won't fall back to the base for missing sizes.
+- `signature.py` — 14 `SLOTS` made custom: `svg` (AI JSON of SVGs, sanitized), `image` (local image AI), or
+  `import`. Stored in `<spec dir>/<slug>-icons/{svg,png}/<slot>.*`; they replace recolored versions.
+- `imagegen.py` — Fooocus (Gradio 3 queue over a stdlib websocket; settings matched by label), ComfyUI,
+  A1111/Forge. `to_icon()` cuts the background (rembg if installed, else edge flood fill).
+  Running image gens uses the user's GPU — test with `--only` and a couple of icons.
+
 ## GUI
 `gui/app.py` = editor tabs (left) + `gui/preview.py` live preview (right) + `gui/ai_panel.py` on top.
 The preview paints a mock desktop on a fixed 1280x800 canvas from `colors.scheme()` / `konsole.ansi()` — the

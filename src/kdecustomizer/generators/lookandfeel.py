@@ -28,7 +28,7 @@ def defaults(theme: Theme) -> str:
     return "\n".join([
         "[kdeglobals][KDE]", f"widgetStyle={theme.widget_style}", "",
         "[kdeglobals][General]", f"ColorScheme={theme.slug}", "",
-        "[kdeglobals][Icons]", f"Theme={theme.icons}", "",
+        "[kdeglobals][Icons]", f"Theme={theme.icons_name}", "",
         "[plasmarc][Theme]", f"name={theme.plasma_style_name}", "",
         "[kcminputrc][Mouse]", f"cursorTheme={theme.cursors}", "",
         "[kwinrc][org.kde.kdecoration2]", f"library={d.library}", f"theme={d.theme}", "",

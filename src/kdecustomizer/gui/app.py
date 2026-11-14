@@ -6,7 +6,7 @@ import sys
 from dataclasses import fields
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, Qt, QTimer, Signal
+from PySide6.QtCore import QProcess, QStandardPaths, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QColorDialog, QComboBox, QDockWidget, QFileDialog,
@@ -17,7 +17,9 @@ from PySide6.QtWidgets import (
 
 from .. import build as builder
 from .. import color, spec, system
+from .. import iconset
 from .ai_panel import AIPanel
+from .icons_tab import IconsTab
 from .preview import Preview, ensure_icon_paths
 
 COMMON_WIDGETS = [
@@ -145,6 +147,11 @@ class Main(QMainWindow):
         self.tabs.addTab(self._theme_tab(), "Theme")
         self.tabs.addTab(self._colors_tab(), "Colors")
         self.tabs.addTab(self._desktop_tab(), "Desktop")
+        self.icons_tab = IconsTab(lambda: self.theme, lambda: self.path, self._ensure_saved)
+        self.icons_tab.changed.connect(self.changed)
+        self.icons_tab.icons_changed.connect(self._schedule_icons)
+        self.icons_tab.generate.toggled.connect(lambda on: self.text["icons"].setEnabled(not on))
+        self.tabs.addTab(scroll(self.icons_tab), "Icons")
         self.tabs.addTab(self._panels_tab(), "Panels")
         self.tabs.addTab(self._fonts_tab(), "Fonts")
 
@@ -178,6 +185,10 @@ class Main(QMainWindow):
         # Coalesce rapid edits (typing, dragging in the color dialog) into one repaint.
         self._refresh = QTimer(self, singleShot=True, interval=60)
         self._refresh.timeout.connect(lambda: self.preview.show_theme(self.theme))
+        # The generated icon set is rebuilt into a cache dir for the preview (debounced: ~0.2 s per build).
+        self._icons_timer = QTimer(self, singleShot=True, interval=500)
+        self._icons_timer.timeout.connect(self._build_preview_icons)
+        self._icons_key = None
 
         if path:
             self.load(Path(path))
@@ -507,6 +518,8 @@ class Main(QMainWindow):
         for k, ff in self.fonts.items():
             ff.edit.setText(getattr(t.fonts, k))
         self._fill_panel_list()
+        self.icons_tab.load(t)
+        self.text["icons"].setEnabled(not t.iconset.generate)
         self._loading = False
         self._after_change()
 
@@ -528,6 +541,7 @@ class Main(QMainWindow):
             setattr(t.decoration, k, w.text().strip())
         for k, ff in self.fonts.items():
             setattr(t.fonts, k, ff.edit.text().strip())
+        self.icons_tab.store(t)
         return t
 
     def changed(self, *_) -> None:
@@ -542,6 +556,42 @@ class Main(QMainWindow):
     def _after_change(self) -> None:
         self._refresh.start()
         self._update_contrast()
+        ics = self.theme.iconset
+        key = (ics.generate, ics.base, ics.signature_dir, self.theme.palette.accent, self.theme.slug)
+        if ics.generate and key != self._icons_key:
+            self._icons_timer.start()
+
+    def _schedule_icons(self) -> None:
+        self._icons_key = None
+        self._icons_timer.start()
+
+    def _build_preview_icons(self) -> None:
+        """Build the generated icon theme into a cache dir the preview's icon lookup searches."""
+        t = self.theme
+        if not t.iconset.generate:
+            return
+        root = Path(QStandardPaths.writableLocation(QStandardPaths.CacheLocation)) / "preview-icons"
+        try:
+            iconset.build(t, root)
+        except Exception as e:  # missing base theme, unreadable files…
+            self.statusBar().showMessage(f"Icon preview: {e}", 6000)
+            return
+        ics = t.iconset
+        self._icons_key = (ics.generate, ics.base, ics.signature_dir, t.palette.accent, t.slug)
+        paths = [p for p in QIcon.themeSearchPaths() if p != str(root)]
+        QIcon.setThemeSearchPaths([str(root), *paths])  # also makes Qt drop its cached lookups
+        self.preview.icons.clear()
+        self.preview.update()
+
+    def _ensure_saved(self) -> bool:
+        """Signature icons are stored next to the spec, so it needs a file first."""
+        if self.path and not self.dirty:
+            return True
+        if not self.path:
+            QMessageBox.information(self, "Save the theme first",
+                                    "Signature icons are kept in a folder next to the theme file. "
+                                    "Choose where to save the theme.")
+        return self.save()
 
     def _update_contrast(self) -> None:
         p = self.theme.palette.resolved()
@@ -619,7 +669,21 @@ class Main(QMainWindow):
             if not f:
                 return False
             self.path = Path(f)
-        spec.save(self.from_form(), self.path)
+        out = copy.deepcopy(self.from_form())
+        for attr in ("wallpaper",):  # keep files next to the spec portable
+            val = getattr(out, attr)
+            if val:
+                try:
+                    setattr(out, attr, str(Path(val).resolve().relative_to(self.path.resolve().parent)))
+                except ValueError:
+                    pass
+        if out.iconset.signature_dir:
+            try:
+                out.iconset.signature_dir = str(Path(out.iconset.signature_dir).resolve()
+                                                .relative_to(self.path.resolve().parent))
+            except ValueError:
+                pass
+        spec.save(out, self.path)
         self.dirty = False
         self._update_title()
         self.statusBar().showMessage(f"Saved {self.path}", 4000)

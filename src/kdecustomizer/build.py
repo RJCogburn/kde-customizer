@@ -7,6 +7,7 @@ import tarfile
 from dataclasses import replace
 from pathlib import Path
 
+from . import iconset
 from .generators import colors, konsole, layout, lookandfeel, plasmastyle
 from .spec import Theme, save
 
@@ -67,8 +68,16 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
     (lnf / "contents/layouts/org.kde.plasma.desktop-layout.js").write_text(layout.generate(theme))
     (out / "layout.js").write_text(layout.generate(theme))
 
-    # Ship the editable spec too, with the wallpaper pointing at the bundled copy.
+    if theme.iconset.generate:
+        iconset.build(theme, out / "icons")
+        sig = Path(theme.iconset.signature_dir) if theme.iconset.signature_dir else None
+        if sig and sig.is_dir():  # bundle the generated originals so the shared spec rebuilds the same
+            shutil.copytree(sig, out / "signature-icons")
+
+    # Ship the editable spec too, with the wallpaper / signature icons pointing at the bundled copies.
     portable = replace(theme, wallpaper=f"wallpapers/{Path(theme.wallpaper).name}" if theme.wallpaper else "")
+    if (out / "signature-icons").is_dir():
+        portable.iconset = replace(theme.iconset, signature_dir="signature-icons")
     save(portable, out / "theme.toml")
     (out / "color-schemes" / f"{theme.slug}.colors").write_text(colors.generate(theme))
 
@@ -126,6 +135,15 @@ def _write_install_script(theme: Theme, out: Path) -> None:
             f'rm -f "${{XDG_CACHE_HOME:-$HOME/.cache}}"/plasma_theme_{name}*.kcache '
             f'"${{XDG_CACHE_HOME:-$HOME/.cache}}"/plasma-svgelements-{name}*',
         ]
+    if theme.iconset.generate:
+        name = theme.icons_name
+        s += [
+            'echo "==> icon theme"',
+            'mkdir -p "$DATA/icons"',
+            f'rm -rf "$DATA/icons/{name}"',
+            f'cp -r "$DIR/icons/{name}" "$DATA/icons/"',
+            'rm -f "${XDG_CACHE_HOME:-$HOME/.cache}"/icon-cache.kcache',
+        ]
     if theme.wallpaper:
         s += ['echo "==> wallpaper"', f'mkdir -p "$DATA/wallpapers/{theme.slug}"',
               f'cp "$DIR"/wallpapers/* "$DATA/wallpapers/{theme.slug}/"']
@@ -141,6 +159,11 @@ def _write_install_script(theme: Theme, out: Path) -> None:
         "fi",
         f"plasma-apply-colorscheme {q(theme.slug)} || true",
     ]
+    if theme.iconset.generate:
+        # Re-announce the icon theme so running apps reload it even when only its files changed.
+        s += ["CHANGEICONS=\"$(ls /usr/lib/plasma-changeicons /usr/lib/*/plasma-changeicons "
+              "/usr/libexec/plasma-changeicons 2>/dev/null | head -n1 || true)\"",
+              f'if [[ -n "$CHANGEICONS" ]]; then "$CHANGEICONS" {q(theme.icons_name)} || true; fi']
     if theme.plasma.generate:
         # LnF already sets plasmarc; this makes a running shell reload the style immediately.
         s.append(f"plasma-apply-desktoptheme {q(theme.plasma_style_name)} || true")

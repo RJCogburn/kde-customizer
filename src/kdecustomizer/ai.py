@@ -89,6 +89,10 @@ color scheme, Plasma style, Konsole scheme, global theme package, panel layout a
   org.kde.plasma.pager, org.kde.plasma.marginsseparator, org.kde.plasma.panelspacer (flexible gap),
   org.kde.plasma.systemtray, org.kde.plasma.digitalclock, org.kde.plasma.showdesktop.
 - `konsole = true` adds a matching terminal scheme.
+- `[iconset]` builds a matching icon theme: `generate = true` recolors `base` (an installed SVG icon theme,
+  e.g. Papirus-Dark, breeze-dark) to the accent and replaces `icons`. Set `style` to a short visual
+  description for custom signature icons (e.g. "brushed champagne-gold metal, dark graphite glass").
+  Leave `signature` and `signature_dir` as they are.
 - `[tweaks.<file>.<group>]` raw KDE config writes, e.g. `[tweaks.kwinrc.Plugins] blurEnabled = true`.
   Only use keys you are sure exist.
 - Do NOT set `wallpaper` (the user picks the file) or `author` (the user fills that in).
@@ -272,6 +276,8 @@ def parse_reply(text: str, current: spec.Theme | None = None) -> spec.Theme:
     if current is not None:
         theme.wallpaper = current.wallpaper
         theme.author = current.author
+        theme.iconset.signature = current.iconset.signature        # generated files are the user's
+        theme.iconset.signature_dir = current.iconset.signature_dir
     return theme
 
 
@@ -286,12 +292,18 @@ def check(theme: spec.Theme, installed: dict[str, list[str]] | None = None) -> l
         r = color.contrast(a, b)
         if r < need:
             out.append(f"{label} contrast is {r:.1f}:1 (needs >= {need}:1)")
-    fields = ["icons", "cursors", "widget_style"] + ([] if theme.plasma.generate else ["plasma_style"])
+    fields = (["cursors", "widget_style"] + ([] if theme.iconset.generate else ["icons"])
+              + ([] if theme.plasma.generate else ["plasma_style"]))
     for f in fields:
         names = installed.get(f, [])
         val = getattr(theme, f)
         if names and val and val.lower() not in {n.lower() for n in names}:
             out.append(f"{f} = {val!r} is not installed (installed: {', '.join(names)})")
+    if theme.iconset.generate:
+        from .iconset import find_theme_dir
+        if find_theme_dir(theme.iconset.base) is None:
+            out.append(f"iconset.base = {theme.iconset.base!r} is not installed (installed: "
+                       f"{', '.join(installed.get('icons', []))})")
     return out
 
 
@@ -450,6 +462,12 @@ def _call_openai(prov: Provider, system_prompt: str, messages: list[dict], api_k
         raise AIError(f"{prov.name}: unexpected response: {str(data)[:300]}") from None
 
 
+def call_provider(prov: Provider, system_prompt: str, messages: list[dict], api_key: str | None = None) -> str:
+    """One round-trip to any provider. `messages` use Anthropic-style content blocks (text/image/document)."""
+    fn = {"claude-code": _call_claude_code, "anthropic": _call_anthropic}.get(prov.kind, _call_openai)
+    return fn(prov, system_prompt, messages, api_key)
+
+
 def generate(request: str, current: spec.Theme | None, prov: Provider, *, api_key: str | None = None,
              use_wallpaper: bool = True, references: list[str] = (), attempts: int = 2,
              log=lambda s: None) -> tuple[spec.Theme, str, list[str]]:
@@ -477,7 +495,7 @@ def generate(request: str, current: spec.Theme | None, prov: Provider, *, api_ke
         log(f"attached {len(references)} reference file{'s' if len(references) != 1 else ''}")
     content.append({"type": "text", "text": request_text(request, current)})
     messages: list[dict] = [{"role": "user", "content": content}]
-    call = {"claude-code": _call_claude_code, "anthropic": _call_anthropic}.get(prov.kind, _call_openai)
+    call = call_provider
 
     theme: spec.Theme | None = None
     problems: list[str] = []

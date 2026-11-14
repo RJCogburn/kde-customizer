@@ -1,0 +1,57 @@
+id = "org.kdecustomizer.origin600i"
+name = "Origin 600i Dark"
+author = "RJCoburn"
+description = "Luxury explorer theme inspired by the Origin Jumpworks 600i brochure: deep graphite, ivory text, champagne-gold accents and clean geometric sans typography"
+version = "1.2"
+icons = "McMojave-circle-dark"
+cursors = "capitaine-cursors-light"
+widget_style = "Breeze"
+plasma_style = "default"
+splash = "org.kde.Breeze"
+wallpaper = ""
+konsole = true
+
+[palette]
+background = "#0f1216"
+surface = "#181c22"
+foreground = "#ece8df"
+accent = "#c9a86a"
+positive = "#7cc497"
+neutral = "#e3b55a"
+negative = "#e06b6b"
+link = "#9fbfdc"
+visited = "#b8a2d6"
+
+[plasma]
+generate = true
+blur = true
+adaptive_transparency = true
+
+[decoration]
+library = "org.kde.breeze"
+theme = "Breeze"
+buttons_left = "M"
+buttons_right = "IAX"
+
+[fonts]
+general = "Montserrat,10"
+fixed = "JetBrains Mono,10"
+small = "Montserrat,8"
+toolbar = "Montserrat,10"
+menu = "Montserrat,10"
+window_title = "Montserrat,10"
+
+[[panels]]
+location = "bottom"
+height = 48
+floating = true
+alignment = "center"
+length_mode = "fit"
+widgets = ["org.kde.plasma.kickoff", "org.kde.plasma.icontasks", "org.kde.plasma.marginsseparator", "org.kde.plasma.systemtray", "org.kde.plasma.digitalclock"]
+
+[tweaks.kwinrc.Plugins]
+blurEnabled = true
+wobblywindowsEnabled = false
+
+[tweaks.kwinrc.Effect-blur]
+BlurStrength = 8

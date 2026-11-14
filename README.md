@@ -97,6 +97,32 @@ Choose the provider with the gear button in the GUI, or with `--provider` / `--m
 **Coding agents:** `kdec ai-guide` prints the full spec reference, including the themes installed on this
 machine, so an agent can write theme files directly.
 
+## Icons
+
+**Matching icon set:** on the **Icons** tab tick *Generate a matching icon set* and pick a base theme you
+have installed (Papirus, Breeze, McMojave, Gruvbox…). Its folders and places are recolored to your accent,
+and everything else is inherited from it. This takes about 0.2 seconds and runs on every build.
+
+**Signature icons:** custom versions of the 14 icons you see most (folders, home, trash, app launcher,
+file manager, terminal, browser, settings), made in a style you describe:
+
+| Made by | How |
+| --- | --- |
+| AI-drawn vectors | Your AI provider (default Claude Code) draws them as SVG. Crisp at every size. |
+| Local image AI | Your own **Fooocus**, **ComfyUI** or **A1111/Forge** renders them; the background is cut away. |
+| Any image app | *Copy prompts…*, make them in ArtCraft, Krita AI or similar, then *Import images…* |
+
+```sh
+kdec icons mytheme.toml --style "brushed gold metal, dark glass"            # AI-drawn vectors
+kdec icons mytheme.toml --mode image --image-url http://127.0.0.1:7865       # local image AI (Fooocus port)
+kdec icons mytheme.toml --mode image --only user-trash,utilities-terminal    # remake a few
+kdec icons mytheme.toml --prompts > prompts.txt                              # for any image app…
+kdec icons mytheme.toml --import ~/Pictures/my-icons                         # …then import (folder.png, …)
+```
+
+Signature icons are kept in a folder next to the theme file and bundled into exports. Installing
+`rembg` (`pip install rembg`) gives cleaner cut-outs for rendered icons.
+
 ## Theme spec
 
 ```toml

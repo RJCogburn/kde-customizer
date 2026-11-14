@@ -99,6 +99,60 @@ def cmd_ai(a) -> int:
     return 0
 
 
+def cmd_icons(a) -> int:
+    """Make signature icons for a theme (and switch on its generated icon set)."""
+    from . import ai, signature
+    theme = spec.load(a.spec)
+    if a.prompts:
+        print(signature.prompts_text(theme))
+        return 0
+    sig = Path(theme.iconset.signature_dir) if theme.iconset.signature_dir else signature.default_dir(theme, a.spec)
+    only = [x.strip() for x in a.only.split(",")] if a.only else None
+    if only and (bad := [x for x in only if x not in signature.SLOTS]):
+        print(f"error: unknown icon(s): {', '.join(bad)}. Known: {', '.join(signature.SLOTS)}", file=sys.stderr)
+        return 1
+    if a.style:
+        theme.iconset.style = a.style
+    log = lambda s: print(f"… {s}", file=sys.stderr)  # noqa: E731
+    try:
+        if a.import_dir:
+            done = signature.import_images(theme, sig, a.import_dir)
+            mode = "image"
+        elif a.mode == "image":
+            done = signature.generate_images(theme, sig, a.image_url, performance=a.performance, only=only, log=log)
+            mode = "image"
+        else:
+            prov = replace(ai.PRESETS[a.provider])
+            prov.model = a.model or prov.model
+            prov.base_url = a.base_url or prov.base_url
+            done = signature.generate_svg(theme, sig, prov, references=a.ref, only=only, log=log)
+            mode = "svg"
+    except (ai.AIError, signature.imagegen.ImageGenError, ValueError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    if not done:
+        print("no icons were made (for --import, name files after the icons, e.g. folder.png)", file=sys.stderr)
+        return 1
+    # Record it in the spec: generated icon set on, pointing at the signature folder (relative path).
+    saved = spec.load(a.spec)
+    saved.iconset.generate = True
+    saved.iconset.signature = mode
+    saved.iconset.style = theme.iconset.style
+    try:
+        saved.iconset.signature_dir = str(sig.resolve().relative_to(Path(a.spec).resolve().parent))
+    except ValueError:
+        saved.iconset.signature_dir = str(sig.resolve())
+    if saved.wallpaper:
+        try:
+            saved.wallpaper = str(Path(saved.wallpaper).relative_to(Path(a.spec).resolve().parent))
+        except ValueError:
+            pass
+    spec.save(saved, a.spec)
+    print(f"made {len(done)} icon(s) in {sig}: {', '.join(done)}")
+    print(f"updated {a.spec} — `kdec apply {a.spec}` installs them")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="kdec", description="Build and apply KDE Plasma themes")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -145,6 +199,23 @@ def main(argv: list[str] | None = None) -> int:
                    help="image, PDF, .docx, text file or http(s) URL to build the theme from (repeatable)")
     s.add_argument("--prompt-only", action="store_true", help="print a prompt to paste into any chat AI instead")
     s.set_defaults(fn=cmd_ai)
+
+    s = sub.add_parser("icons", help="make signature icons (AI-drawn SVG, local image AI, or imported images)")
+    s.add_argument("spec")
+    s.add_argument("--mode", choices=["svg", "image"], default="svg",
+                   help="svg: an AI draws vector icons (default); image: your local image AI renders them")
+    s.add_argument("--style", help='icon look, e.g. "brushed gold metal, dark glass" (saved in the spec)')
+    s.add_argument("--only", metavar="NAMES", help="comma-separated icons to (re)make, e.g. folder,user-home")
+    s.add_argument("--ref", action="append", default=[], metavar="FILE", help="reference to match (svg mode)")
+    s.add_argument("--provider", choices=sorted(PRESETS), default="claude-code", help="AI for svg mode")
+    s.add_argument("--model")
+    s.add_argument("--base-url")
+    s.add_argument("--image-url", default="http://127.0.0.1:7865",
+                   help="local image AI (Fooocus, ComfyUI or A1111/Forge); default Fooocus' port")
+    s.add_argument("--performance", default="", help="Fooocus performance preset, e.g. Speed, Quality, Lightning")
+    s.add_argument("--prompts", action="store_true", help="print prompts to make the icons in any image app")
+    s.add_argument("--import", dest="import_dir", metavar="DIR", help="import <icon-name>.png/.svg files from DIR")
+    s.set_defaults(fn=cmd_icons)
 
     a = p.parse_args(argv)
     try:

@@ -62,6 +62,15 @@ class PlasmaStyle:
 
 
 @dataclass
+class IconSet:
+    generate: bool = False            # build an icon theme matched to the palette; overrides `icons`
+    base: str = "Papirus-Dark"        # installed SVG icon theme to recolor and inherit from
+    signature: str = "none"           # custom "signature" icons on top: none | svg (AI-drawn) | image (local image AI)
+    style: str = ""                   # look of the signature icons, e.g. "brushed gold metal, dark glass"
+    signature_dir: str = ""           # folder of generated signature icons (relative to the spec file)
+
+
+@dataclass
 class Fonts:
     general: str = ""                 # e.g. "Inter,10" — empty = leave as is
     fixed: str = ""
@@ -84,6 +93,7 @@ class Theme:
     widget_style: str = "Breeze"      # Qt style; "kvantum" once a Kvantum theme is generated
     plasma_style: str = "default"     # installed Plasma style to use (ignored if plasma.generate)
     plasma: PlasmaStyle = field(default_factory=PlasmaStyle)
+    iconset: IconSet = field(default_factory=IconSet)
     splash: str = "org.kde.Breeze"
     wallpaper: str = ""               # path to image; copied into the package
     decoration: Decoration = field(default_factory=Decoration)
@@ -107,6 +117,11 @@ class Theme:
         """The Plasma style actually applied: our generated one, or the named installed one."""
         return self.slug if self.plasma.generate else self.plasma_style
 
+    @property
+    def icons_name(self) -> str:
+        """The icon theme actually applied: our generated one, or the named installed one."""
+        return f"{self.slug}-Icons" if self.iconset.generate else self.icons
+
 
 def _build(cls, data: dict[str, Any]):
     known = {f.name: f for f in fields(cls)}
@@ -123,6 +138,7 @@ def from_dict(data: dict[str, Any]) -> Theme:
         "decoration": lambda d: _build(Decoration, d),
         "fonts": lambda d: _build(Fonts, d),
         "plasma": lambda d: _build(PlasmaStyle, d),
+        "iconset": lambda d: _build(IconSet, d),
         "panels": lambda lst: [_build(Panel, p) for p in lst],
     }
     for key, fn in sub.items():
@@ -140,6 +156,9 @@ def load(path: str | Path) -> Theme:
         if not wp.is_absolute():
             wp = path.parent / wp
         theme.wallpaper = str(wp.resolve())
+    if theme.iconset.signature_dir:
+        sd = Path(theme.iconset.signature_dir).expanduser()
+        theme.iconset.signature_dir = str((sd if sd.is_absolute() else path.parent / sd).resolve())
     for c in asdict(theme.palette).values():
         if c:
             color.parse(c)  # validate early
@@ -174,7 +193,7 @@ def dumps(theme: Theme) -> str:
             continue
         else:
             out.append(f"{_key(k)} = {_val(v)}")
-    for name in ("palette", "plasma", "decoration", "fonts"):
+    for name in ("palette", "plasma", "iconset", "decoration", "fonts"):
         out.append(f"\n[{name}]")
         out += [f"{_key(k)} = {_val(v)}" for k, v in tables[name].items()]
     for p in d["panels"]:

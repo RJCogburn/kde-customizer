@@ -79,6 +79,9 @@ class IconCache:
             self._cache[key] = pm
         return self._cache[key]
 
+    def clear(self) -> None:
+        self._cache.clear()
+
 
 # Panel widget id -> how to draw it: ("icon", names) | ("tasks",) | ("tray",) | ("clock",) | ("spacer",) ...
 _TASK_ICONS = [("system-file-manager", "folder"), ("internet-web-browser", "applications-internet"),
@@ -232,7 +235,7 @@ class Preview(QWidget):
             pos += size
 
     def _icon(self, p: QPainter, names: tuple[str, ...], center: QPointF, size: int) -> None:
-        pm = self.icons.get(self.theme.icons, names, max(16, int(size * self.px)))
+        pm = self.icons.get(self.theme.icons_name, names, max(16, int(size * self.px)))
         if pm.isNull():
             p.setPen(Qt.NoPen)
             p.setBrush(_q(self.theme.palette.accent, 0.8))
