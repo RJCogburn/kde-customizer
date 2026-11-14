@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import shlex
 import shutil
+import tarfile
+from dataclasses import replace
 from pathlib import Path
 
 from .generators import colors, konsole, layout, lookandfeel
-from .spec import Theme
-
-DATA = Path.home() / ".local/share"
+from .spec import Theme, save
 
 _FONT_KEYS = {  # Fonts field -> (file, group, key)
     "general": ("kdeglobals", "General", "font"),
@@ -55,18 +55,21 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
     (lnf / "contents/layouts").mkdir(parents=True)
     (out / "color-schemes").mkdir()
 
-    wallpaper_url = ""
     if theme.wallpaper:
-        src = Path(theme.wallpaper)
+        src = Path(theme.wallpaper).expanduser()
+        if not src.is_file():
+            raise FileNotFoundError(f"wallpaper not found: {src}")
         (out / "wallpapers").mkdir()
         shutil.copy2(src, out / "wallpapers" / src.name)
-        wallpaper_url = (DATA / "wallpapers" / theme.slug / src.name).as_uri()
 
     (lnf / "metadata.json").write_text(lookandfeel.metadata(theme))
     (lnf / "contents/defaults").write_text(lookandfeel.defaults(theme))
-    (lnf / "contents/layouts/org.kde.plasma.desktop-layout.js").write_text(
-        layout.generate(theme, wallpaper_url))
-    (out / "layout.js").write_text(layout.generate(theme, wallpaper_url))
+    (lnf / "contents/layouts/org.kde.plasma.desktop-layout.js").write_text(layout.generate(theme))
+    (out / "layout.js").write_text(layout.generate(theme))
+
+    # Ship the editable spec too, with the wallpaper pointing at the bundled copy.
+    portable = replace(theme, wallpaper=f"wallpapers/{Path(theme.wallpaper).name}" if theme.wallpaper else "")
+    save(portable, out / "theme.toml")
     (out / "color-schemes" / f"{theme.slug}.colors").write_text(colors.generate(theme))
 
     if theme.konsole:
@@ -76,6 +79,15 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
 
     _write_install_script(theme, out)
     return out
+
+
+def export(theme: Theme, dest: str | Path | None = None, build_root: str | Path = "build") -> Path:
+    """Build, then pack into <Slug>.tar.gz. Recipient: extract, run ./install.sh."""
+    out = build(theme, build_root)
+    dest = Path(dest) if dest else Path.cwd() / f"{theme.slug}.tar.gz"
+    with tarfile.open(dest, "w:gz") as tar:
+        tar.add(out, arcname=theme.slug)
+    return dest
 
 
 def _write_install_script(theme: Theme, out: Path) -> None:
@@ -111,6 +123,9 @@ def _write_install_script(theme: Theme, out: Path) -> None:
         "fi",
         f"plasma-apply-colorscheme {q(theme.slug)} || true",
     ]
+    if theme.wallpaper:
+        wp = f"$DATA/wallpapers/{theme.slug}/{Path(theme.wallpaper).name}"
+        s += ['echo "==> wallpaper"', f'plasma-apply-wallpaperimage "{wp}"']
     if theme.konsole:
         s.append(f"kwriteconfig6 --file konsolerc --group 'Desktop Entry' --key DefaultProfile {q(theme.slug + '.profile')}")
     if tweaks:

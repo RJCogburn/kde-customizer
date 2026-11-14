@@ -125,7 +125,7 @@ def load(path: str | Path) -> Theme:
         wp = Path(theme.wallpaper).expanduser()
         if not wp.is_absolute():
             wp = path.parent / wp
-        theme.wallpaper = str(wp)
+        theme.wallpaper = str(wp.resolve())
     for c in asdict(theme.palette).values():
         if c:
             color.parse(c)  # validate early

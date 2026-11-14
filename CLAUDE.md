@@ -22,6 +22,7 @@ pip install -e '.[gui]'          # or run with PYTHONPATH=src python -m kdecusto
 kdec new mytheme.toml
 kdec build examples/midnight.toml          # -> build/Midnight/
 kdec apply examples/midnight.toml [--layout] [--dry-run]
+kdec export examples/midnight.toml [out.tar.gz]  # shareable archive: build + wallpaper + theme.toml; recipient runs ./install.sh
 kdec layout examples/midnight.toml         # live panel/wallpaper script via plasmashell evaluateScript
 kdec-gui examples/midnight.toml
 ```
@@ -35,4 +36,7 @@ kdec-gui examples/midnight.toml
 5. **Cursors, SDDM, splash** — SDDM needs root (pkexec); splash = QML package in the LnF.
 6. **Snapshot** — `kdec snapshot` to read the current desktop config into a spec.
 7. GUI: live preview, panel editor, tweaks editor.
-Known limitation: wallpaper URL in the layout script is an absolute path baked at build time.
+
+## Portability rule
+Built output must not contain paths from the build machine. Wallpaper is bundled in `wallpapers/` and set by
+`install.sh` via `plasma-apply-wallpaperimage "$DATA/..."`; the bundled `theme.toml` uses a relative wallpaper path.

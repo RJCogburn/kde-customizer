@@ -47,7 +47,7 @@ class Main(QMainWindow):
 
         bar = QHBoxLayout()
         for label, fn in [("Open…", self.open), ("Save", self.save), ("Build", self.do_build),
-                          ("Apply", self.apply)]:
+                          ("Apply", self.apply), ("Export…", self.export)]:
             b = QPushButton(label)
             b.clicked.connect(fn)
             bar.addWidget(b)
@@ -59,9 +59,16 @@ class Main(QMainWindow):
         meta = QGroupBox("Theme")
         mf = QFormLayout(meta)
         self.text: dict[str, QLineEdit] = {}
-        for key in ("name", "id", "author", "icons", "cursors", "widget_style", "plasma_style", "wallpaper"):
+        for key in ("name", "id", "author", "icons", "cursors", "widget_style", "plasma_style"):
             self.text[key] = QLineEdit()
             mf.addRow(key.replace("_", " ").title(), self.text[key])
+        self.text["wallpaper"] = QLineEdit()
+        wp_row = QHBoxLayout()
+        wp_row.addWidget(self.text["wallpaper"])
+        browse = QPushButton("Browse…")
+        browse.clicked.connect(self.pick_wallpaper)
+        wp_row.addWidget(browse)
+        mf.addRow("Wallpaper", wp_row)
         lay.addWidget(meta)
 
         pal = QGroupBox("Palette")
@@ -137,6 +144,25 @@ class Main(QMainWindow):
             return None
         self.log.appendPlainText(f"built {out}")
         return out
+
+    def pick_wallpaper(self) -> None:
+        f, _ = QFileDialog.getOpenFileName(self, "Choose wallpaper", str(Path.home()),
+                                           "Images (*.png *.jpg *.jpeg *.webp *.svg)")
+        if f:
+            self.text["wallpaper"].setText(f)
+
+    def export(self) -> None:
+        theme = self.from_form()
+        f, _ = QFileDialog.getSaveFileName(self, "Export theme", f"{theme.slug}.tar.gz", "Theme archive (*.tar.gz)")
+        if not f:
+            return
+        root = (self.path.parent if self.path else Path.cwd()) / "build"
+        try:
+            dest = builder.export(theme, f, root)
+        except Exception as e:
+            QMessageBox.critical(self, "Export failed", str(e))
+            return
+        self.log.appendPlainText(f"exported {dest} — recipient extracts it and runs ./install.sh")
 
     def apply(self) -> None:
         out = self.do_build()

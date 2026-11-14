@@ -29,6 +29,12 @@ def cmd_build(a) -> int:
     return 0
 
 
+def cmd_export(a) -> int:
+    dest = builder.export(spec.load(a.spec), a.dest, a.out)
+    print(f"exported {dest}\nshare it; recipient runs: tar xzf {dest.name} && ./{dest.name.removesuffix('.tar.gz')}/install.sh")
+    return 0
+
+
 def cmd_apply(a) -> int:
     out = builder.build(spec.load(a.spec), a.out)
     script = out / "install.sh"
@@ -60,12 +66,15 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(fn=cmd_new)
 
     for name, fn, hlp in [("build", cmd_build, "generate theme files into build/"),
+                          ("export", cmd_export, "build and pack a shareable .tar.gz (includes wallpaper)"),
                           ("apply", cmd_apply, "build, install and apply a theme"),
                           ("layout", cmd_layout, "apply only the panel/wallpaper layout live")]:
         s = sub.add_parser(name, help=hlp)
         s.add_argument("spec")
         s.add_argument("-o", "--out", default="build")
-        if name != "build":
+        if name == "export":
+            s.add_argument("dest", nargs="?", help="output file (default: ./<Name>.tar.gz)")
+        elif name != "build":
             s.add_argument("--dry-run", action="store_true", help="print the script instead of running it")
         if name == "apply":
             s.add_argument("--layout", action="store_true", help="also replace panels with the theme's layout")
