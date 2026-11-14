@@ -53,7 +53,10 @@ cp -a "$APPDIR" "$ROOT/build/appdir"
 
 # Package ourselves (python-appimage loses track of the file when the app's display name has a space).
 OUT="$ROOT/dist/KDE_Customizer-$VERSION-x86_64.AppImage"
+# Only the normal (non --no-packaging) path downloads appimagetool; on a fresh machine fetch it here.
+"$TOOLS/python-appimage" install appimagetool >/dev/null
 APPIMAGETOOL="$("$TOOLS/python-appimage" which appimagetool)"
+[[ -x "$APPIMAGETOOL" ]] || { echo "appimagetool not found after install" >&2; exit 1; }
 ARCH=x86_64 "$APPIMAGETOOL" --no-appstream "$APPDIR" "$OUT" >/dev/null 2>"$WORK/appimagetool.log" \
     || { cat "$WORK/appimagetool.log"; exit 1; }
 chmod +x "$OUT"
