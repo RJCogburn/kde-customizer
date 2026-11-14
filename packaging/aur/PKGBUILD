@@ -15,7 +15,7 @@ optdepends=('claude-code: AI design with your Claude Code login (default AI prov
             'python-rembg: cleaner cut-outs for icons rendered by a local image AI'
             'papirus-icon-theme: a good base for generated icon sets')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')  # replaced with the release tarball's checksum when published to the AUR
+sha256sums=('a984287ef54905c50294cafe4dc035972d603f3e5cbc3ab778647822d4c426ea')
 
 build() {
   cd "$pkgname-$pkgver"
