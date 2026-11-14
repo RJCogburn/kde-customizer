@@ -82,6 +82,7 @@ overrides:
     # library names rather than package names: Fedora and openSUSE name packages differently
     depends:
       - libglib-2.0.so.0()(64bit)
+      - libgthread-2.0.so.0()(64bit)      # a separate package on openSUSE (libgthread-2_0-0)
       - libdbus-1.so.3()(64bit)
       - libfontconfig.so.1()(64bit)
       - libfreetype.so.6()(64bit)
