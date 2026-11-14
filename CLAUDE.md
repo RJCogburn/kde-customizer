@@ -74,6 +74,14 @@ and deletes `~/.cache/plasma_theme_<Slug>*` so re-installs pick up new colors. `
 6. **Snapshot** — `kdec snapshot` to read the current desktop config into a spec.
 7. GUI: tweaks editor; preview of the Kickoff menu / dialogs.
 
+## Packaging / releases
+`packaging/appimage/build.sh` (python-appimage -> `trim-runtime.sh` -> AppImage; leaves `build/appdir`) then
+`packaging/build-packages.sh` (stages `build/pkgroot` -> .tar.gz + nfpm .deb/.rpm with the bundled runtime in
+/opt/kde-customizer). `packaging/aur/PKGBUILD` builds from source against Arch's pyside6. CI:
+`.github/workflows/release.yml` on `v*` tags (build, makepkg, install tests on 7 distros, attach to release).
+Release = bump version in `pyproject.toml` + `src/kdecustomizer/__init__.py` + `packaging/aur/PKGBUILD`, tag.
+`trim-runtime.sh` must leave every Qt lib resolving inside the bundle — it checks with ldd.
+
 ## Portability rule
 Built output must not contain paths from the build machine. Wallpaper is bundled in `wallpapers/` and set by
 `install.sh` via `plasma-apply-wallpaperimage "$DATA/..."`; the bundled `theme.toml` uses a relative wallpaper path.

@@ -1,0 +1,39 @@
+# Maintainer: RJCogburn <28759507+RJCogburn@users.noreply.github.com>
+pkgname=kde-customizer
+pkgver=0.1.1
+pkgrel=1
+pkgdesc="Build, preview and apply complete KDE Plasma 6 themes from one TOML spec, with AI-assisted design and icon sets"
+arch=('any')
+url="https://github.com/RJCogburn/kde-customizer"
+license=('GPL-3.0-or-later')
+depends=('python' 'pyside6' 'python-pillow'
+         'plasma-workspace' 'kconfig' 'kpackage' 'qt6-tools')
+makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+optdepends=('claude-code: AI design with your Claude Code login (default AI provider)'
+            'python-anthropic: AI design with a Claude API key'
+            'python-pypdf: read PDF references with non-Claude AI providers'
+            'python-rembg: cleaner cut-outs for icons rendered by a local image AI'
+            'papirus-icon-theme: a good base for generated icon sets')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')  # replaced with the release tarball's checksum when published to the AUR
+
+build() {
+  cd "$pkgname-$pkgver"
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  PYTHONPATH=src python -m kdecustomizer.cli check examples/midnight.toml
+  PYTHONPATH=src python -m kdecustomizer.cli build examples/midnight.toml -o "$srcdir/check-build" >/dev/null
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 packaging/kde-customizer.desktop "$pkgdir/usr/share/applications/kde-customizer.desktop"
+  install -Dm644 packaging/kde-customizer.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/kde-customizer.png"
+  install -d "$pkgdir/usr/share/$pkgname"
+  cp -r examples "$pkgdir/usr/share/$pkgname/"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

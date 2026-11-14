@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build dist/KDE_Customizer-<version>-x86_64.AppImage
+# Build dist/KDE_Customizer-<version>-x86_64.AppImage (and build/appdir, the runtime the
+# .deb/.rpm/.tar.gz are made from — run packaging/build-packages.sh next).
 #
 # Uses python-appimage: a portable manylinux CPython + pip-installed deps (PySide6-Essentials bundles its
 # own Qt). Needs network on first run (downloads the base Python image and appimagetool; cached after).
@@ -30,7 +31,7 @@ echo "==> building kdecustomizer wheel"
 WHEEL="$(ls "$WORK"/wheel/kdecustomizer-*.whl)"
 
 echo "==> staging recipe"
-cp "$HERE/entrypoint.sh" "$HERE/kde-customizer.desktop" "$HERE/kde-customizer.png" "$WORK/recipe/"
+cp "$HERE/entrypoint.sh" "$ROOT/packaging/kde-customizer.desktop" "$ROOT/packaging/kde-customizer.png" "$WORK/recipe/"
 cat > "$WORK/recipe/requirements.txt" <<EOF
 $WHEEL
 PySide6-Essentials>=6.6
@@ -43,6 +44,12 @@ echo "==> building AppImage (Python $PYVER)"
 cd "$WORK"
 "$TOOLS/python-appimage" build app --no-packaging -p "$PYVER" -n KDE_Customizer "$WORK/recipe"
 APPDIR="$(find "$WORK" -maxdepth 1 -type d -name 'KDE*Customizer-*' | head -1)"
+"$ROOT/packaging/trim-runtime.sh" "$APPDIR"
+
+# Keep the finished runtime for the .deb/.rpm/.tar.gz (packaging/build-packages.sh).
+rm -rf "$ROOT/build/appdir"
+mkdir -p "$ROOT/build"
+cp -a "$APPDIR" "$ROOT/build/appdir"
 
 # Package ourselves (python-appimage loses track of the file when the app's display name has a space).
 OUT="$ROOT/dist/KDE_Customizer-$VERSION-x86_64.AppImage"

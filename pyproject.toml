@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kdecustomizer"
-version = "0.1.0"
+version = "0.1.1"
 description = "Build and apply complete KDE Plasma 6 themes from a single spec file"
 license = "GPL-3.0-or-later"
 readme = "README.md"
@@ -18,6 +18,7 @@ ai = ["anthropic>=2.8", "Pillow", "pypdf"]   # Claude API, image downscaling, PD
 [project.scripts]
 kdec = "kdecustomizer.cli:main"
 kdec-gui = "kdecustomizer.gui.app:main"
+kde-customizer = "kdecustomizer.gui.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

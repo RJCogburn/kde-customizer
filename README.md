@@ -17,26 +17,42 @@ From about seven palette colors, one theme spec generates:
 
 ## Install
 
-Requires Plasma 6 and Python 3.11+.
+Download from the [latest release](https://github.com/RJCogburn/kde-customizer/releases/latest).
+It needs KDE Plasma 6 on x86_64.
+
+| Your system | Download | Install |
+| --- | --- | --- |
+| Arch, CachyOS, Manjaro, EndeavourOS | [`PKGBUILD`](packaging/aur/PKGBUILD) | `makepkg -si` in a folder with the PKGBUILD (it uses Arch's own PySide6) |
+| Ubuntu, Kubuntu, KDE neon, Debian | `kde-customizer_<ver>_amd64.deb` | `sudo apt install ./kde-customizer_*.deb` |
+| Fedora KDE, openSUSE | `kde-customizer-<ver>.x86_64.rpm` | `sudo dnf install ./kde-customizer-*.rpm` / `sudo zypper install ./kde-customizer-*.rpm` |
+| Any distribution, no root | `kde-customizer-<ver>-x86_64.tar.gz` | `tar xzf kde-customizer-*.tar.gz && ./kde-customizer-*/install.sh` |
+| Any distribution, single file | `KDE_Customizer-<ver>-x86_64.AppImage` | `chmod +x KDE_Customizer-*.AppImage` and run it |
+
+Then start **KDE Customizer** from the application menu. On the command line, `kdec` runs the CLI and
+`kdec-gui` the GUI. Check downloads against `SHA256SUMS`.
+
+The .deb, .rpm, .tar.gz and AppImage carry their own Python and Qt in `/opt/kde-customizer`. Many
+distributions don't package PySide6, so this works everywhere. The AUR package uses Arch's own Python and
+PySide6. In the AppImage the app window uses Qt's own style rather than Breeze. The bundled Qt can't load the
+system's KDE style plugin. Themes it builds are not affected.
+
+### From source
 
 ```sh
 git clone https://github.com/RJCogburn/kde-customizer.git
 cd kde-customizer
-pip install -e '.[gui]'        # add ',ai' for the Claude API provider and wallpaper downscaling
+pip install -e '.[gui,ai]'
 ```
 
-### AppImage
-
-Prefer a single file? Build one (about 105 MB, bundles Python and Qt; no install needed):
+### Building the packages
 
 ```sh
-packaging/appimage/build.sh              # -> dist/KDE_Customizer-<version>-x86_64.AppImage
-./dist/KDE_Customizer-*.AppImage         # GUI
-./dist/KDE_Customizer-*.AppImage build mytheme.toml   # any kdec command works too
+packaging/appimage/build.sh      # AppImage + the bundled runtime in build/appdir
+packaging/build-packages.sh      # .tar.gz, and .deb/.rpm when nfpm is installed
 ```
 
-Inside the AppImage the app uses Qt's own style instead of your Breeze style, because the bundled Qt can't
-load the system's KDE style plugin. Themes it builds are unaffected.
+Pushing a `v*` tag runs `.github/workflows/release.yml`. It builds everything, test-installs each package on
+Ubuntu, Debian, Fedora, openSUSE and Arch, and attaches the files to the GitHub release.
 
 ## Use
 

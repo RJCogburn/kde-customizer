@@ -742,7 +742,7 @@ class Main(QMainWindow):
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("KDE Customizer")
-    app.setDesktopFileName("kdec-gui")
+    app.setDesktopFileName("kde-customizer")  # matches kde-customizer.desktop
     ensure_icon_paths()
     app.setWindowIcon(QIcon.fromTheme("preferences-desktop-theme-global"))
     w = Main(sys.argv[1] if len(sys.argv) > 1 else None)
