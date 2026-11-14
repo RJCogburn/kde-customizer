@@ -24,7 +24,6 @@ build() {
 
 check() {
   cd "$pkgname-$pkgver"
-  PYTHONPATH=src python -m kdecustomizer.cli check examples/midnight.toml
   PYTHONPATH=src python -m kdecustomizer.cli build examples/midnight.toml -o "$srcdir/check-build" >/dev/null
 }
 

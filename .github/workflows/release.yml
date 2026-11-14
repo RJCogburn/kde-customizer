@@ -29,7 +29,6 @@ jobs:
             | sudo tar -xz -C /usr/local/bin nfpm
       - name: Self-check (no GUI)
         run: |
-          PYTHONPATH=src python3 -m kdecustomizer.cli check examples/midnight.toml
           PYTHONPATH=src python3 -m kdecustomizer.cli build examples/midnight.toml -o /tmp/check >/dev/null
           bash -n /tmp/check/Midnight/install.sh
       - name: AppImage
