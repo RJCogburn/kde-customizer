@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=KDE Customizer
+GenericName=Theme Designer
+Comment=Build, preview and apply complete KDE Plasma themes
+Exec=kde-customizer %f
+Icon=kde-customizer
+Terminal=false
+Categories=Settings;DesktopSettings;Qt;KDE;
+MimeType=application/toml;
+Keywords=theme;colors;plasma;panel;wallpaper;customize;

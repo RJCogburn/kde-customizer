@@ -25,6 +25,19 @@ cd kde-customizer
 pip install -e '.[gui]'        # add ',ai' for the Claude API provider and wallpaper downscaling
 ```
 
+### AppImage
+
+Prefer a single file? Build one (about 105 MB, bundles Python and Qt; no install needed):
+
+```sh
+packaging/appimage/build.sh              # -> dist/KDE_Customizer-<version>-x86_64.AppImage
+./dist/KDE_Customizer-*.AppImage         # GUI
+./dist/KDE_Customizer-*.AppImage build mytheme.toml   # any kdec command works too
+```
+
+Inside the AppImage the app uses Qt's own style instead of your Breeze style, because the bundled Qt can't
+load the system's KDE style plugin. Themes it builds are unaffected.
+
 ## Use
 
 **GUI:** `kdec-gui examples/midnight.toml`
