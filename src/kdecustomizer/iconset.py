@@ -127,8 +127,17 @@ def _slot_names() -> set[str]:
     return names
 
 
-def build(theme: Theme, out_root: Path) -> Path:
-    """Write the icon theme to out_root/<icons_name>/ and return that path."""
+def preview_names() -> set[str]:
+    """The icon names the GUI preview draws that a generated set can change (slots + aliases)."""
+    return _slot_names()
+
+
+def build(theme: Theme, out_root: Path, only: set[str] | None = None) -> Path:
+    """Write the icon theme to out_root/<icons_name>/ and return that path.
+
+    `only`: restrict to these icon names (the GUI preview passes `preview_names()`, which turns a
+    whole-theme rebuild — up to ~1 s for big bases like Gruvbox — into a few milliseconds).
+    """
     ics = theme.iconset
     base_dir = find_theme_dir(ics.base)
     if base_dir is None:
@@ -151,7 +160,7 @@ def build(theme: Theme, out_root: Path) -> Path:
         if not base.has_section(d) or base[d].get("Context") not in ("Places", "MimeTypes") or "symbolic" in d:
             continue
         for p in _canonical_entries(base_dir / d):
-            if p.stem not in replaced:
+            if p.stem not in replaced and (only is None or p.stem in only):
                 files.append((d, p))
     texts = {}
     for d, p in files:

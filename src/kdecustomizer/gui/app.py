@@ -572,7 +572,7 @@ class Main(QMainWindow):
             return
         root = Path(QStandardPaths.writableLocation(QStandardPaths.CacheLocation)) / "preview-icons"
         try:
-            iconset.build(t, root)
+            iconset.build(t, root, only=iconset.preview_names())  # just what the preview draws
         except Exception as e:  # missing base theme, unreadable files…
             self.statusBar().showMessage(f"Icon preview: {e}", 6000)
             return
