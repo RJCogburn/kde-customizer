@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import copy
 from dataclasses import replace
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QSettings, Qt, QThread, Signal
-from PySide6.QtGui import QAction, QGuiApplication, QIcon
+from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-    QMenu, QMessageBox, QPlainTextEdit, QPushButton, QToolButton, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
+    QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .. import ai, spec
@@ -91,14 +92,15 @@ class _Worker(QObject):
     done = Signal(object, str, list)
     failed = Signal(str)
 
-    def __init__(self, request, theme, prov, key, use_wp):
+    def __init__(self, request, theme, prov, key, use_wp, refs):
         super().__init__()
-        self.args = (request, theme, prov, key, use_wp)
+        self.args = (request, theme, prov, key, use_wp, refs)
 
     def run(self):
-        request, theme, prov, key, use_wp = self.args
+        request, theme, prov, key, use_wp, refs = self.args
         try:
-            result = ai.generate(request, theme, prov, api_key=key, use_wallpaper=use_wp, log=self.progress.emit)
+            result = ai.generate(request, theme, prov, api_key=key, use_wallpaper=use_wp, references=refs,
+                                 log=self.progress.emit)
         except ai.AIError as e:
             self.failed.emit(str(e))
         except Exception as e:  # network/SDK surprises shouldn't kill the GUI
@@ -146,7 +148,24 @@ class AIPanel(QWidget):
         self.prompt.setFixedHeight(64)
         v.addWidget(self.prompt)
 
+        self.refs: list[str] = []
+        self.refs_list = QListWidget()
+        self.refs_list.setFixedHeight(58)
+        self.refs_list.setToolTip("Reference files the AI builds the theme from — select and press Delete to remove")
+        self.refs_list.hide()
+        v.addWidget(self.refs_list)
+        QShortcut(QKeySequence.Delete, self.refs_list, activated=self._remove_selected_refs)
+        self.setAcceptDrops(True)
+
         row = QHBoxLayout()
+        attach = QPushButton(QIcon.fromTheme("mail-attachment"), "Attach")
+        attach.setToolTip("Add images, PDFs (brochure, brand guide, mood board…), Word or text files — or a\n"
+                          "link to one — to design from. You can also drag files or links onto this panel.")
+        attach_menu = QMenu(attach)
+        attach_menu.addAction(QAction(QIcon.fromTheme("document-open"), "Files…", self, triggered=self.pick_refs))
+        attach_menu.addAction(QAction(QIcon.fromTheme("link"), "Link (URL)…", self, triggered=self.pick_link))
+        attach.setMenu(attach_menu)
+        row.addWidget(attach)
         self.use_wp = QCheckBox("Match wallpaper")
         self.use_wp.setToolTip("Send the wallpaper image so the palette is drawn from it")
         self.use_wp.setChecked(True)
@@ -171,6 +190,65 @@ class AIPanel(QWidget):
         prov, _ = current_provider()
         self.provider_label.setText(f"{prov.name}{' · ' + prov.model if prov.model else ''}")
 
+    # --- reference attachments ------------------------------------------------------
+    def add_refs(self, paths: list[str]):
+        bad = []
+        for path in paths:
+            ext = Path(path).suffix.lower()
+            if ai.is_url(path):
+                if path not in self.refs:
+                    self.refs.append(path)  # type is checked when it's downloaded
+            elif ext not in ai.IMAGE_EXT | ai.TEXT_EXT | {".pdf", ".docx"}:
+                bad.append(Path(path).name)
+            elif path not in self.refs:
+                self.refs.append(path)
+        self._show_refs()
+        if bad:
+            self._say("Can't use: " + ", ".join(bad) + " — attach images, PDFs, .docx or text files.", True)
+
+    def _show_refs(self):
+        self.refs_list.clear()
+        for path in self.refs:
+            p = Path(path.split("?")[0])
+            icon = ("image-x-generic" if p.suffix.lower() in ai.IMAGE_EXT else
+                    "application-pdf" if p.suffix.lower() == ".pdf" else "text-x-generic")
+            label = p.name or path
+            if ai.is_url(path):
+                icon, label = ("application-pdf" if icon == "application-pdf" else "link"), f"{label}  (link)"
+            item = QListWidgetItem(QIcon.fromTheme(icon), label)
+            item.setToolTip(path)
+            self.refs_list.addItem(item)
+        self.refs_list.setVisible(bool(self.refs))
+
+    def _remove_selected_refs(self):
+        for item in self.refs_list.selectedItems():
+            self.refs.remove(item.toolTip())
+        self._show_refs()
+
+    def pick_refs(self):
+        files, _ = QFileDialog.getOpenFileNames(self, "Attach reference files", str(Path.home()),
+                                                ai.ATTACH_FILTER + ";;All files (*)")
+        if files:
+            self.add_refs(files)
+
+    def pick_link(self):
+        clip = QGuiApplication.clipboard().text().strip()
+        url, ok = QInputDialog.getText(self, "Attach a link", "URL of a PDF, image or page to design from:",
+                                       text=clip if ai.is_url(clip) else "")
+        if ok and url.strip():
+            if not ai.is_url(url):
+                self._say("That doesn't look like an http(s) link.", True)
+                return
+            self.add_refs([url.strip()])
+
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+
+    def dropEvent(self, e):
+        self.add_refs([u.toLocalFile() if u.isLocalFile() else u.toString()
+                       for u in e.mimeData().urls() if u.isLocalFile() or u.scheme() in ("http", "https")])
+
     def _say(self, text: str, error: bool = False):
         self.status.setStyleSheet("color:#d4351c;" if error else "")
         self.status.setText(text)
@@ -185,8 +263,10 @@ class AIPanel(QWidget):
             self._show_provider()
 
     def copy_prompt(self):
-        self._copy(ai.prompt_text(self.prompt.toPlainText(), self.get_theme()),
-                   "Prompt copied — paste it into any chat AI, then use “Paste AI reply…” with its answer.")
+        self._copy(ai.prompt_text(self.prompt.toPlainText(), self.get_theme(), self.refs),
+                   "Prompt copied — paste it into any chat AI"
+                   + (" and attach your reference files there too" if self.refs else "")
+                   + ", then use “Paste AI reply…” with its answer.")
 
     def paste_reply(self):
         dlg = QDialog(self)
@@ -220,7 +300,7 @@ class AIPanel(QWidget):
         self.go.setText("Working…")
         self._say(f"Asking {prov.name}…")
         self.thread = QThread(self)
-        self.worker = _Worker(self.prompt.toPlainText(), theme, prov, key, self.use_wp.isChecked())
+        self.worker = _Worker(self.prompt.toPlainText(), theme, prov, key, self.use_wp.isChecked(), list(self.refs))
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         # Bound methods of this widget (not lambdas) so Qt queues them onto the GUI thread.

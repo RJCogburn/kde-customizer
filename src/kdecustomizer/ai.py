@@ -91,7 +91,7 @@ color scheme, Plasma style, Konsole scheme, global theme package, panel layout a
 - `konsole = true` adds a matching terminal scheme.
 - `[tweaks.<file>.<group>]` raw KDE config writes, e.g. `[tweaks.kwinrc.Plugins] blurEnabled = true`.
   Only use keys you are sure exist.
-- Do NOT set `wallpaper` (the user picks the file).
+- Do NOT set `wallpaper` (the user picks the file) or `author` (the user fills that in).
 
 ## Design rules
 - Readability: foreground vs background and vs surface contrast >= 4.5:1 (aim for 7+);
@@ -99,8 +99,12 @@ color scheme, Plasma style, Konsole scheme, global theme package, panel layout a
 - `surface` is a subtle step from `background` (a few % lighter on dark themes, darker on light ones),
   not a different hue family.
 - Keep positive/neutral/negative recognisable as green/amber/red, tuned to sit with the palette.
-- If an image is attached it is the wallpaper: pull the palette from it (background from its dark/light
+- Attachments are labelled. The WALLPAPER: pull the palette from it (background from its dark/light
   areas, accent from its most characterful color) so the desktop feels like one piece.
+  REFERENCE material (brand guides, mood boards, screenshots, palettes, documents): build the theme from
+  it — use exact hex codes it gives, its brand/key colors as accent, its mood for light vs dark, and any
+  style cues (rounded/flat, dock vs full panel, fonts). References win over the wallpaper when they
+  conflict, but keep the result readable against the wallpaper.
 
 ## Installed on this machine
 {installed}
@@ -129,9 +133,124 @@ def request_text(request: str, current: spec.Theme | None) -> str:
     return "\n\n".join(parts)
 
 
-def prompt_text(request: str, current: spec.Theme | None = None) -> str:
-    """One self-contained prompt to paste into any chat AI."""
-    return reference() + "\n---\n\n" + request_text(request, current)
+def prompt_text(request: str, current: spec.Theme | None = None, references: list[str] = ()) -> str:
+    """One self-contained prompt to paste into any chat AI (attach any reference files yourself)."""
+    note = ""
+    if references:
+        note = ("\n\nI'm attaching these reference files — build the theme from them: "
+                + ", ".join(Path(r).name for r in references))
+    return reference() + "\n---\n\n" + request_text(request, current) + note
+
+
+# --- reference attachments -------------------------------------------------------------
+
+IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
+TEXT_EXT = {".txt", ".md", ".toml", ".json", ".css", ".scss", ".less", ".qss", ".html", ".htm", ".svg", ".xml",
+            ".yaml", ".yml", ".ini", ".conf", ".colors", ".colorscheme", ".kvconfig", ".csv", ".rtf"}
+MAX_TEXT_CHARS = 150_000
+MAX_PDF_BYTES = 30 * 1024 * 1024
+ATTACH_FILTER = ("Images, PDFs, documents (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.tif *.tiff *.pdf *.docx "
+                 + " ".join(f"*{e}" for e in sorted(TEXT_EXT - {".jpg"})) + ")")
+
+
+def _docx_text(path: Path) -> str:
+    import zipfile
+    from xml.etree import ElementTree as ET
+    ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    with zipfile.ZipFile(path) as z:
+        root = ET.fromstring(z.read("word/document.xml"))
+    paras = ["".join(t.text or "" for t in p.iter(f"{ns}t")) for p in root.iter(f"{ns}p")]
+    return "\n".join(p for p in paras if p.strip())
+
+
+_TYPE_EXT = {"application/pdf": ".pdf", "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp",
+             "image/gif": ".gif", "text/plain": ".txt", "text/html": ".html", "text/markdown": ".md",
+             "image/svg+xml": ".svg",
+             "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx"}
+
+
+def is_url(ref: str) -> bool:
+    return bool(re.match(r"https?://", ref.strip(), re.I))
+
+
+def _download(url: str, dest_dir: str) -> Path:
+    """Fetch a reference URL into dest_dir, refusing anything over the PDF size limit."""
+    from urllib.parse import unquote, urlparse
+    req = urllib.request.Request(url, headers={"User-Agent": "kde-customizer"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            data = r.read(MAX_PDF_BYTES + 1)
+            ctype = (r.headers.get_content_type() or "").lower()
+    except urllib.error.HTTPError as e:
+        raise ValueError(f"{url}: download failed (HTTP {e.code})") from None
+    except urllib.error.URLError as e:
+        raise ValueError(f"{url}: download failed ({e.reason})") from None
+    if len(data) > MAX_PDF_BYTES:
+        raise ValueError(f"{url}: file is larger than 30 MB")
+    name = Path(unquote(urlparse(url).path)).name or "download"
+    if Path(name).suffix.lower() not in IMAGE_EXT | TEXT_EXT | {".pdf", ".docx"}:
+        name += _TYPE_EXT.get(ctype, ".txt")
+    out = Path(dest_dir, re.sub(r"[^\w.-]+", "_", name))
+    out.write_bytes(data)
+    return out
+
+
+def load_reference(path: str) -> list[dict]:
+    """Content blocks for one reference file or http(s) URL. Raises ValueError if it can't be used
+    (never truncates)."""
+    if is_url(path):
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="kdec-ref-") as tmp:
+            blocks = load_reference(str(_download(path.strip(), tmp)))  # read into memory before cleanup
+        blocks[0]["text"] = blocks[0]["text"].replace("Reference file", f"Reference from {path.strip()} —", 1)
+        return blocks
+    p = Path(path).expanduser()
+    if not p.is_file():
+        raise ValueError(f"{p.name}: file not found")
+    ext = p.suffix.lower()
+    label = {"type": "text", "text": f'Reference file "{p.name}":'}
+    if ext in IMAGE_EXT:
+        img = _image_payload(str(p))
+        if not img:
+            raise ValueError(f"{p.name}: couldn't read this image")
+        return [label, {"type": "image", "source": {"type": "base64", "media_type": img[0], "data": img[1]},
+                        "_file": f"ref-{p.stem}.jpg"}]
+    if ext == ".pdf":
+        if p.stat().st_size > MAX_PDF_BYTES:
+            raise ValueError(f"{p.name}: PDF is larger than 30 MB — export just the relevant pages")
+        data = base64.b64encode(p.read_bytes()).decode()
+        return [label, {"type": "document", "source": {"type": "base64", "media_type": "application/pdf",
+                                                        "data": data}, "_file": f"ref-{p.name}"}]
+    if ext == ".docx":
+        text = _docx_text(p)
+    else:
+        raw = p.read_bytes()
+        if ext not in TEXT_EXT and b"\0" in raw[:4096]:
+            raise ValueError(f"{p.name}: unsupported file type — use an image, PDF, .docx or text file")
+        text = raw.decode("utf-8", errors="replace")
+    if len(text) > MAX_TEXT_CHARS:
+        raise ValueError(f"{p.name}: too long ({len(text):,} characters; limit {MAX_TEXT_CHARS:,}) — "
+                         "trim it to the relevant part")
+    return [{"type": "text", "text": f'Reference file "{p.name}":\n```\n{text}\n```'}]
+
+
+def _clean(block: dict) -> dict:
+    """Drop our private `_` keys before sending a block to an API."""
+    return {k: v for k, v in block.items() if not k.startswith("_")}
+
+
+def _pdf_text(b64: str) -> str:
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        raise AIError("this provider can't read PDFs directly and pypdf isn't installed — "
+                      "pip install pypdf, or use a Claude provider") from None
+    reader = PdfReader(io.BytesIO(base64.b64decode(b64)))
+    text = "\n".join((page.extract_text() or "") for page in reader.pages).strip()
+    if len(text) > MAX_TEXT_CHARS:
+        raise AIError(f"PDF text is too long for this provider ({len(text):,} characters) — "
+                      "use a Claude provider or a shorter PDF")
+    return text or "(this PDF has no extractable text — it is probably scanned images)"
 
 
 # --- reply parsing and checks ----------------------------------------------------------
@@ -145,12 +264,14 @@ def parse_reply(text: str, current: spec.Theme | None = None) -> spec.Theme:
     except tomllib.TOMLDecodeError as e:
         raise ValueError(f"reply is not valid TOML: {e}") from None
     data.pop("wallpaper", None)
+    data.pop("author", None)  # personal data is the user's to fill in; models may guess it from their account
     theme = spec.from_dict(data)
     for k, v in vars(theme.palette).items():
         if v:
             color.parse(v)
     if current is not None:
         theme.wallpaper = current.wallpaper
+        theme.author = current.author
     return theme
 
 
@@ -207,7 +328,8 @@ def _call_anthropic(prov: Provider, system_prompt: str, messages: list[dict], ap
             model=prov.model or CLAUDE_MODEL,
             max_tokens=16000,
             system=system_prompt,
-            messages=messages,
+            messages=[{"role": m["role"], "content": m["content"] if isinstance(m["content"], str)
+                       else [_clean(b) for b in m["content"]]} for m in messages],
             output_config={"effort": "medium"},
             # On a safety decline, the API retries on a fallback model inside the same call.
             betas=["server-side-fallback-2026-07-01"],
@@ -229,8 +351,9 @@ def _call_anthropic(prov: Provider, system_prompt: str, messages: list[dict], ap
 def _call_claude_code(prov: Provider, system_prompt: str, messages: list[dict], api_key: str | None) -> str:
     """Run the `claude` CLI headless (-p). It uses the user's Claude Code login, not an API key.
 
-    -p is single-shot, so the conversation (incl. fix-up rounds) is flattened into one prompt. The only
-    tool allowed is Read, and only when a wallpaper image is attached (written to a private temp dir).
+    -p is single-shot, so the conversation (incl. fix-up rounds) is flattened into one prompt. Images and
+    PDFs (wallpaper, references) are written to a private temp dir; the only tool allowed is Read, and only
+    when there are such files.
     """
     import shutil
     import subprocess
@@ -241,16 +364,18 @@ def _call_claude_code(prov: Provider, system_prompt: str, messages: list[dict], 
         raise AIError("Claude Code isn't installed — install it, run `claude` once to sign in, then retry")
     with tempfile.TemporaryDirectory(prefix="kdec-ai-") as tmp:
         parts: list[str] = []
-        image = False
+        files: dict[str, str] = {}  # file name -> base64 data (first message only; retries repeat it)
         for m in messages:
             blocks = [{"type": "text", "text": m["content"]}] if isinstance(m["content"], str) else m["content"]
             texts = []
             for b in blocks:
-                if b["type"] == "image" and not image:
-                    Path(tmp, "wallpaper.jpg").write_bytes(base64.b64decode(b["source"]["data"]))
-                    texts.append("The wallpaper is ./wallpaper.jpg — open it with the Read tool and draw the "
-                                 "palette from it.")
-                    image = True
+                if b["type"] in ("image", "document"):
+                    name = re.sub(r"[^\w.-]+", "_", b.get("_file") or f"attachment{len(files)}")
+                    if name in files:
+                        name = f"{len(files)}-{name}"
+                    files[name] = b["source"]["data"]
+                    Path(tmp, name).write_bytes(base64.b64decode(b["source"]["data"]))
+                    texts.append(f"(file ./{name} — open it with the Read tool)")
                 elif b["type"] == "text":
                     texts.append(b["text"])
             who = "Me" if m["role"] == "user" else "You (earlier)"
@@ -258,8 +383,8 @@ def _call_claude_code(prov: Provider, system_prompt: str, messages: list[dict], 
         prompt = "\n\n".join(parts) if len(parts) > 1 else "\n\n".join(parts).split("\n", 1)[1]
 
         cmd = [exe, "-p", "--output-format", "json", "--system-prompt", system_prompt,
-               "--no-session-persistence", "--strict-mcp-config", "--max-turns", "4"]
-        cmd += ["--tools", "Read", "--allowedTools", "Read"] if image else ["--tools", ""]
+               "--no-session-persistence", "--strict-mcp-config", "--max-turns", str(4 + 4 * len(files))]  # long PDFs take several Reads
+        cmd += ["--tools", "Read", "--allowedTools", "Read"] if files else ["--tools", ""]
         if prov.model:
             cmd += ["--model", prov.model]
         env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
@@ -294,6 +419,9 @@ def _to_openai(system_prompt: str, messages: list[dict]) -> list[dict]:
                 src = b["source"]
                 parts.append({"type": "image_url",
                               "image_url": {"url": f"data:{src['media_type']};base64,{src['data']}"}})
+            elif b["type"] == "document":  # no portable PDF input in the OpenAI format: send its text
+                parts.append({"type": "text", "text": f"(text extracted from the PDF)\n```\n"
+                                                      f"{_pdf_text(b['source']['data'])}\n```"})
         out.append({"role": m["role"], "content": parts})
     return out
 
@@ -323,16 +451,30 @@ def _call_openai(prov: Provider, system_prompt: str, messages: list[dict], api_k
 
 
 def generate(request: str, current: spec.Theme | None, prov: Provider, *, api_key: str | None = None,
-             use_wallpaper: bool = True, attempts: int = 2, log=lambda s: None) -> tuple[spec.Theme, str, list[str]]:
-    """Ask the provider for a theme. Returns (theme, model's design note, remaining warnings)."""
+             use_wallpaper: bool = True, references: list[str] = (), attempts: int = 2,
+             log=lambda s: None) -> tuple[spec.Theme, str, list[str]]:
+    """Ask the provider for a theme. Returns (theme, model's design note, remaining warnings).
+
+    `references`: images, PDFs, .docx or text files to build the theme from (brand guide, mood board…).
+    """
     installed = system.summary()
     system_prompt = reference(installed)
     content: list[dict] = []
     if use_wallpaper and current is not None and current.wallpaper:
         img = _image_payload(current.wallpaper)
         if img:
-            content.append({"type": "image", "source": {"type": "base64", "media_type": img[0], "data": img[1]}})
+            content += [{"type": "text", "text": "WALLPAPER:"},
+                        {"type": "image", "source": {"type": "base64", "media_type": img[0], "data": img[1]},
+                         "_file": "wallpaper.jpg"}]
             log("attached wallpaper image")
+    if references:
+        content.append({"type": "text", "text": "REFERENCE material — build the theme from this:"})
+        for r in references:
+            try:
+                content += load_reference(r)
+            except ValueError as e:
+                raise AIError(str(e)) from None
+        log(f"attached {len(references)} reference file{'s' if len(references) != 1 else ''}")
     content.append({"type": "text", "text": request_text(request, current)})
     messages: list[dict] = [{"role": "user", "content": content}]
     call = {"claude-code": _call_claude_code, "anthropic": _call_anthropic}.get(prov.kind, _call_openai)

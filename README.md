@@ -67,6 +67,17 @@ into **Design with AI** (GUI) or run:
 kdec ai "cozy autumn, dock-style panel" --from mytheme.toml
 ```
 
+**Design from something:** attach images, PDFs (a product brochure, brand guide or mood board), Word or
+text files, or a link to any of them, and the AI builds the theme from them: exact hex codes, key colors,
+light or dark mood, and style cues like a dock or flat panels. In the GUI use **Attach → Files… / Link…**
+or drag files and links onto the AI panel. On the command line use `--ref` (repeatable):
+
+```sh
+kdec ai "luxury explorer feel" --ref https://example.com/brochure.pdf --ref moodboard.png
+```
+
+Claude providers see PDFs page by page, visuals included. Other providers get images plus the PDF's text.
+
 With **Match wallpaper** on, the AI looks at your wallpaper and builds the palette from it. Every result is
 checked for readable contrast and for icon, cursor and Plasma themes that aren't installed. If a check
 fails, the AI is asked to fix it once.

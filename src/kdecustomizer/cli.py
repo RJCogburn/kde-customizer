@@ -75,13 +75,13 @@ def cmd_ai(a) -> int:
     from . import ai
     current = spec.load(a.base) if a.base else None
     if a.prompt_only:
-        print(ai.prompt_text(a.request, current))
+        print(ai.prompt_text(a.request, current, a.ref))
         return 0
     prov = replace(ai.PRESETS[a.provider])
     prov.model = a.model or prov.model
     prov.base_url = a.base_url or prov.base_url
     try:
-        theme, note, problems = ai.generate(a.request, current, prov, use_wallpaper=not a.no_wallpaper,
+        theme, note, problems = ai.generate(a.request, current, prov, use_wallpaper=not a.no_wallpaper, references=a.ref,
                                             log=lambda s: print(f"… {s}", file=sys.stderr))
     except ai.AIError as e:
         print(f"error: {e}", file=sys.stderr)
@@ -141,6 +141,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--model", help="model name (required for non-Claude providers)")
     s.add_argument("--base-url", help="override the provider's API URL")
     s.add_argument("--no-wallpaper", action="store_true", help="don't send the wallpaper image")
+    s.add_argument("--ref", action="append", default=[], metavar="FILE",
+                   help="image, PDF, .docx, text file or http(s) URL to build the theme from (repeatable)")
     s.add_argument("--prompt-only", action="store_true", help="print a prompt to paste into any chat AI instead")
     s.set_defaults(fn=cmd_ai)
 

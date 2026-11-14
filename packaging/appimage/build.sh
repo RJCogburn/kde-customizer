@@ -36,6 +36,7 @@ $WHEEL
 PySide6-Essentials>=6.6
 Pillow
 anthropic>=2.8
+pypdf
 EOF
 
 echo "==> building AppImage (Python $PYVER)"

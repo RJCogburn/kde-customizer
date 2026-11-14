@@ -13,7 +13,7 @@ dependencies = []
 
 [project.optional-dependencies]
 gui = ["PySide6>=6.6"]
-ai = ["anthropic>=2.8", "Pillow"]   # Claude + wallpaper downscaling; other providers need nothing extra
+ai = ["anthropic>=2.8", "Pillow", "pypdf"]   # Claude API, image downscaling, PDF text for non-Claude AIs
 
 [project.scripts]
 kdec = "kdecustomizer.cli:main"
