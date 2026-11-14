@@ -11,7 +11,8 @@ Target system: Plasma 6.8, Qt 6, Python 3.11+ (dev box runs 3.14, CachyOS).
   through that script (CLI and GUI both run it), so built themes are shareable without this tool.
 - `cli.py` (`kdec`) and `gui/app.py` (`kdec-gui`, PySide6) are thin front ends — keep logic in core modules.
 - `system.py` — lists installed icon/cursor/Plasma/widget styles (editor dropdowns + AI prompt).
-- `ai.py` — provider-neutral AI design: `reference()` (spec guide + installed themes), `parse_reply()`,
+- `ai.py` — provider-neutral AI design. Default provider `claude-code` runs `claude -p` (user's Claude Code login,
+  no API key; API-key env vars are stripped; only the Read tool, for a temp wallpaper copy). `reference()` (spec guide + installed themes), `parse_reply()`,
   `check()` (contrast + not-installed), `generate()` (Claude via `anthropic` SDK; others via OpenAI-compatible
   `/chat/completions` with urllib; one automatic fix-up round when `check()` complains).
 
@@ -39,7 +40,7 @@ kdec export examples/midnight.toml [out.tar.gz]  # shareable archive: build + wa
 kdec layout examples/midnight.toml         # live panel/wallpaper script via plasmashell evaluateScript
 kdec-gui examples/midnight.toml
 kdec check mytheme.toml                    # contrast + installed-theme warnings
-kdec ai "warm autumn, dock panel" [--from mytheme.toml] [--provider claude|openai|gemini|openrouter|ollama|lmstudio --model M]
+kdec ai "warm autumn, dock panel" [--from mytheme.toml] [--provider claude-code(default)|claude|openai|gemini|openrouter|ollama|lmstudio --model M]
 kdec ai "..." --prompt-only                # prompt to paste into any chat AI
 kdec ai-guide                              # spec guide for coding agents — read it before writing a theme spec
 ```

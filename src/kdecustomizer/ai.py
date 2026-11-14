@@ -30,14 +30,16 @@ CLAUDE_MODEL = "claude-opus-5-5"
 @dataclass
 class Provider:
     name: str
-    kind: str              # "anthropic" | "openai"
+    kind: str              # "claude-code" | "anthropic" | "openai"
     base_url: str = ""
     key_env: str = ""      # env var holding the API key ("" = no key needed)
     model: str = ""
 
 
 PRESETS: dict[str, Provider] = {
-    "claude": Provider("Claude (Anthropic)", "anthropic", model=CLAUDE_MODEL),
+    # Your Claude Code sign-in (same as the VS Code extension) — uses your Claude plan, no API key.
+    "claude-code": Provider("Claude Code (your login)", "claude-code"),
+    "claude": Provider("Claude API (key)", "anthropic", model=CLAUDE_MODEL),
     "openai": Provider("OpenAI", "openai", "https://api.openai.com/v1", "OPENAI_API_KEY"),
     "gemini": Provider("Google Gemini", "openai", "https://generativelanguage.googleapis.com/v1beta/openai",
                        "GEMINI_API_KEY"),
@@ -224,6 +226,60 @@ def _call_anthropic(prov: Provider, system_prompt: str, messages: list[dict], ap
     return "".join(b.text for b in resp.content if b.type == "text")
 
 
+def _call_claude_code(prov: Provider, system_prompt: str, messages: list[dict], api_key: str | None) -> str:
+    """Run the `claude` CLI headless (-p). It uses the user's Claude Code login, not an API key.
+
+    -p is single-shot, so the conversation (incl. fix-up rounds) is flattened into one prompt. The only
+    tool allowed is Read, and only when a wallpaper image is attached (written to a private temp dir).
+    """
+    import shutil
+    import subprocess
+    import tempfile
+
+    exe = shutil.which("claude")
+    if not exe:
+        raise AIError("Claude Code isn't installed — install it, run `claude` once to sign in, then retry")
+    with tempfile.TemporaryDirectory(prefix="kdec-ai-") as tmp:
+        parts: list[str] = []
+        image = False
+        for m in messages:
+            blocks = [{"type": "text", "text": m["content"]}] if isinstance(m["content"], str) else m["content"]
+            texts = []
+            for b in blocks:
+                if b["type"] == "image" and not image:
+                    Path(tmp, "wallpaper.jpg").write_bytes(base64.b64decode(b["source"]["data"]))
+                    texts.append("The wallpaper is ./wallpaper.jpg — open it with the Read tool and draw the "
+                                 "palette from it.")
+                    image = True
+                elif b["type"] == "text":
+                    texts.append(b["text"])
+            who = "Me" if m["role"] == "user" else "You (earlier)"
+            parts.append(f"[{who}]\n" + "\n\n".join(texts))
+        prompt = "\n\n".join(parts) if len(parts) > 1 else "\n\n".join(parts).split("\n", 1)[1]
+
+        cmd = [exe, "-p", "--output-format", "json", "--system-prompt", system_prompt,
+               "--no-session-persistence", "--strict-mcp-config", "--max-turns", "4"]
+        cmd += ["--tools", "Read", "--allowedTools", "Read"] if image else ["--tools", ""]
+        if prov.model:
+            cmd += ["--model", prov.model]
+        env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
+        try:
+            r = subprocess.run(cmd, input=prompt, capture_output=True, text=True, cwd=tmp, env=env, timeout=600)
+        except subprocess.TimeoutExpired:
+            raise AIError("Claude Code took longer than 10 minutes — try a simpler request") from None
+    try:
+        data = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        msg = (r.stderr or r.stdout).strip()[:400]
+        raise AIError(f"Claude Code failed: {msg or f'exit code {r.returncode}'}") from None
+    if data.get("is_error") or data.get("subtype") != "success":
+        detail = data.get("result") or data.get("subtype") or "unknown error"
+        if "login" in str(detail).lower() or "auth" in str(detail).lower():
+            detail = f"{detail} — run `claude` in a terminal and sign in"
+        raise AIError(f"Claude Code: {detail}")
+    return data.get("result", "")
+
+
 def _to_openai(system_prompt: str, messages: list[dict]) -> list[dict]:
     out = [{"role": "system", "content": system_prompt}]
     for m in messages:
@@ -279,7 +335,7 @@ def generate(request: str, current: spec.Theme | None, prov: Provider, *, api_ke
             log("attached wallpaper image")
     content.append({"type": "text", "text": request_text(request, current)})
     messages: list[dict] = [{"role": "user", "content": content}]
-    call = _call_anthropic if prov.kind == "anthropic" else _call_openai
+    call = {"claude-code": _call_claude_code, "anthropic": _call_anthropic}.get(prov.kind, _call_openai)
 
     theme: spec.Theme | None = None
     problems: list[str] = []

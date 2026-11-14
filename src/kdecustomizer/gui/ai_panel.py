@@ -20,8 +20,8 @@ def _settings() -> QSettings:
 
 def current_provider() -> tuple[ai.Provider, str | None]:
     s = _settings()
-    key = s.value("ai/provider", "claude")
-    prov = replace(ai.PRESETS.get(key, ai.PRESETS["claude"]))
+    key = s.value("ai/provider", "claude-code")
+    prov = replace(ai.PRESETS.get(key, ai.PRESETS["claude-code"]))
     prov.model = s.value(f"ai/{key}/model", prov.model) or prov.model
     prov.base_url = s.value(f"ai/{key}/base_url", prov.base_url) or prov.base_url
     return prov, (s.value(f"ai/{key}/api_key", "") or None)
@@ -51,7 +51,7 @@ class SettingsDialog(QDialog):
         bb.rejected.connect(self.reject)
         f.addRow(bb)
         self.provider.currentIndexChanged.connect(self._load)
-        self.provider.setCurrentIndex(max(0, self.provider.findData(self.s.value("ai/provider", "claude"))))
+        self.provider.setCurrentIndex(max(0, self.provider.findData(self.s.value("ai/provider", "claude-code"))))
         self._load()
 
     def _key(self) -> str:
@@ -65,7 +65,14 @@ class SettingsDialog(QDialog):
         self.base_url.setText(self.s.value(f"ai/{k}/base_url", p.base_url))
         self.base_url.setEnabled(p.kind == "openai")
         self.key.setText(self.s.value(f"ai/{k}/api_key", ""))
-        env = "ANTHROPIC_API_KEY (or `ant auth login`)" if p.kind == "anthropic" else p.key_env
+        self.key.setEnabled(p.kind != "claude-code")
+        if p.kind == "claude-code":
+            self.model.setPlaceholderText("your Claude Code default (or: opus, sonnet, haiku)")
+            self.key_hint.setText("Uses your Claude Code sign-in — the same account as the VS Code extension. "
+                                  "No API key; requests count toward your Claude plan. If it says you're not "
+                                  "signed in, run `claude` in a terminal once and log in.")
+            return
+        env ="ANTHROPIC_API_KEY (or `ant auth login`)" if p.kind == "anthropic" else p.key_env
         self.key_hint.setText(
             (f"Leave empty to use {env} from your environment. " if env else "No key needed for local models. ")
             + "A key entered here is stored unencrypted in ~/.config/kdecustomizer/.")

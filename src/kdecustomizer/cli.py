@@ -137,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--from", dest="base", metavar="SPEC", help="refine this theme (its wallpaper is shown to the AI)")
     s.add_argument("-o", "--output", help="where to write (default: overwrite --from, else <name>.toml)")
     s.add_argument("--force", action="store_true")
-    s.add_argument("--provider", choices=sorted(PRESETS), default="claude")
+    s.add_argument("--provider", choices=sorted(PRESETS), default="claude-code")
     s.add_argument("--model", help="model name (required for non-Claude providers)")
     s.add_argument("--base-url", help="override the provider's API URL")
     s.add_argument("--no-wallpaper", action="store_true", help="don't send the wallpaper image")
