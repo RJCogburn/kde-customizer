@@ -7,7 +7,7 @@ import tarfile
 from dataclasses import replace
 from pathlib import Path
 
-from .generators import colors, konsole, layout, lookandfeel
+from .generators import colors, konsole, layout, lookandfeel, plasmastyle
 from .spec import Theme, save
 
 _FONT_KEYS = {  # Fonts field -> (file, group, key)
@@ -72,6 +72,13 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
     save(portable, out / "theme.toml")
     (out / "color-schemes" / f"{theme.slug}.colors").write_text(colors.generate(theme))
 
+    if theme.plasma.generate:
+        ps = out / "plasma" / theme.plasma_style_name
+        ps.mkdir(parents=True)
+        (ps / "metadata.json").write_text(plasmastyle.metadata(theme))
+        (ps / "colors").write_text(plasmastyle.colors(theme))
+        (ps / "plasmarc").write_text(plasmastyle.plasmarc(theme))
+
     if theme.konsole:
         (out / "konsole").mkdir()
         (out / "konsole" / f"{theme.slug}.colorscheme").write_text(konsole.colorscheme(theme))
@@ -108,6 +115,17 @@ def _write_install_script(theme: Theme, out: Path) -> None:
     ]
     if theme.konsole:
         s += ['echo "==> konsole"', 'mkdir -p "$DATA/konsole"', 'cp "$DIR"/konsole/* "$DATA/konsole/"']
+    if theme.plasma.generate:
+        name = theme.plasma_style_name
+        s += [
+            'echo "==> plasma style"',
+            'mkdir -p "$DATA/plasma/desktoptheme"',
+            f'rm -rf "$DATA/plasma/desktoptheme/{name}"',
+            f'cp -r "$DIR/plasma/{name}" "$DATA/plasma/desktoptheme/"',
+            "# drop cached renders of the old version so new colors show up",
+            f'rm -f "${{XDG_CACHE_HOME:-$HOME/.cache}}"/plasma_theme_{name}*.kcache '
+            f'"${{XDG_CACHE_HOME:-$HOME/.cache}}"/plasma-svgelements-{name}*',
+        ]
     if theme.wallpaper:
         s += ['echo "==> wallpaper"', f'mkdir -p "$DATA/wallpapers/{theme.slug}"',
               f'cp "$DIR"/wallpapers/* "$DATA/wallpapers/{theme.slug}/"']
@@ -123,6 +141,9 @@ def _write_install_script(theme: Theme, out: Path) -> None:
         "fi",
         f"plasma-apply-colorscheme {q(theme.slug)} || true",
     ]
+    if theme.plasma.generate:
+        # LnF already sets plasmarc; this makes a running shell reload the style immediately.
+        s.append(f"plasma-apply-desktoptheme {q(theme.plasma_style_name)} || true")
     if theme.wallpaper:
         wp = f"$DATA/wallpapers/{theme.slug}/{Path(theme.wallpaper).name}"
         s += ['echo "==> wallpaper"', f'plasma-apply-wallpaperimage "{wp}"']

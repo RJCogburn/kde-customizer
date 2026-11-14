@@ -81,6 +81,17 @@ class Main(QMainWindow):
             pf.addRow(f.name.title(), self.colors[f.name])
         lay.addWidget(pal)
 
+        ps = QGroupBox("Plasma style")
+        pv = QVBoxLayout(ps)
+        self.plasma: dict[str, QCheckBox] = {}
+        for key, label in [("generate", "Generate from palette (overrides Plasma Style above)"),
+                           ("blur", "Blur behind panels and popups"),
+                           ("adaptive_transparency", "Opaque panels when a window is maximized")]:
+            self.plasma[key] = QCheckBox(label)
+            pv.addWidget(self.plasma[key])
+        self.plasma["generate"].toggled.connect(lambda on: self.text["plasma_style"].setEnabled(not on))
+        lay.addWidget(ps)
+
         self.log = QPlainTextEdit(readOnly=True)
         self.log.setMaximumHeight(160)
         lay.addWidget(self.log)
@@ -102,12 +113,17 @@ class Main(QMainWindow):
             w.setText(getattr(self.theme, k))
         for k, b in self.colors.items():
             b.set(getattr(self.theme.palette, k))
+        for k, c in self.plasma.items():
+            c.setChecked(getattr(self.theme.plasma, k))
+        self.text["plasma_style"].setEnabled(not self.theme.plasma.generate)
 
     def from_form(self) -> spec.Theme:
         for k, w in self.text.items():
             setattr(self.theme, k, w.text().strip())
         for k, b in self.colors.items():
             setattr(self.theme.palette, k, b.value)
+        for k, c in self.plasma.items():
+            setattr(self.theme.plasma, k, c.isChecked())
         return self.theme
 
     # --- actions --------------------------------------------------------------

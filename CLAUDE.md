@@ -28,8 +28,14 @@ kdec-gui examples/midnight.toml
 ```
 `apply` changes the live desktop — use `--dry-run` when testing generator changes.
 
+## Plasma style (`[plasma] generate = true`)
+`generators/plasmastyle.py` → `build/<Slug>/plasma/<Slug>/` = `metadata.json` + `colors` + `plasmarc`, **no SVGs** — same
+trick as stock Breeze Dark: missing SVGs fall back to `default`, whose `ColorScheme-*` classes read the theme's `colors`.
+`plasmarc` carries Blur/Contrast/AdaptiveTransparency hints. `install.sh` copies it to `$DATA/plasma/desktoptheme/`
+and deletes `~/.cache/plasma_theme_<Slug>*` so re-installs pick up new colors. `Theme.plasma_style_name` is what LnF sets.
+
 ## Roadmap (not built yet)
-1. **Plasma style generator** — recolor Breeze SVGs (panel bg, widgets, dialogs) from palette → `~/.local/share/plasma/desktoptheme/`.
+1. **Plasma style shapes** — ship our own SVGs (corner radius, panel outline/opacity) on top of the colors-only style.
 2. **Aurorae window decoration** — SVG titlebar/buttons from palette.
 3. **Kvantum theme** — `.kvconfig` + `.svg`; set `widget_style = "kvantum"`, write `~/.config/Kvantum/kvantum.kvconfig`.
 4. **Icons** — recolor an existing icon theme (folder colors from accent) into a new inherited theme.

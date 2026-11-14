@@ -17,6 +17,12 @@ positive = "#4ade80"
 neutral = "#facc15"
 negative = "#f87171"
 
+# Palette-matched Plasma style (panels, popups, widgets). Overrides plasma_style above.
+[plasma]
+generate = true
+blur = true
+adaptive_transparency = true
+
 [decoration]
 library = "org.kde.breeze"
 theme = "Breeze"

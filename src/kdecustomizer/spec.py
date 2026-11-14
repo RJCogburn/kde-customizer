@@ -55,6 +55,13 @@ class Decoration:
 
 
 @dataclass
+class PlasmaStyle:
+    generate: bool = False            # build a palette-matched Plasma style; overrides `plasma_style`
+    blur: bool = True                 # blur + contrast behind translucent panels/popups
+    adaptive_transparency: bool = True  # panels go opaque when a window is maximized
+
+
+@dataclass
 class Fonts:
     general: str = ""                 # e.g. "Inter,10" — empty = leave as is
     fixed: str = ""
@@ -75,7 +82,8 @@ class Theme:
     icons: str = "breeze"
     cursors: str = "breeze_cursors"
     widget_style: str = "Breeze"      # Qt style; "kvantum" once a Kvantum theme is generated
-    plasma_style: str = "default"     # Plasma desktop theme name
+    plasma_style: str = "default"     # installed Plasma style to use (ignored if plasma.generate)
+    plasma: PlasmaStyle = field(default_factory=PlasmaStyle)
     splash: str = "org.kde.Breeze"
     wallpaper: str = ""               # path to image; copied into the package
     decoration: Decoration = field(default_factory=Decoration)
@@ -94,6 +102,11 @@ class Theme:
     def slug(self) -> str:
         return re.sub(r"[^A-Za-z0-9]+", "", self.name.title()) or "Untitled"
 
+    @property
+    def plasma_style_name(self) -> str:
+        """The Plasma style actually applied: our generated one, or the named installed one."""
+        return self.slug if self.plasma.generate else self.plasma_style
+
 
 def _build(cls, data: dict[str, Any]):
     known = {f.name: f for f in fields(cls)}
@@ -109,6 +122,7 @@ def from_dict(data: dict[str, Any]) -> Theme:
         "palette": lambda d: _build(Palette, d),
         "decoration": lambda d: _build(Decoration, d),
         "fonts": lambda d: _build(Fonts, d),
+        "plasma": lambda d: _build(PlasmaStyle, d),
         "panels": lambda lst: [_build(Panel, p) for p in lst],
     }
     for key, fn in sub.items():
@@ -160,7 +174,7 @@ def dumps(theme: Theme) -> str:
             continue
         else:
             out.append(f"{_key(k)} = {_val(v)}")
-    for name in ("palette", "decoration", "fonts"):
+    for name in ("palette", "plasma", "decoration", "fonts"):
         out.append(f"\n[{name}]")
         out += [f"{_key(k)} = {_val(v)}" for k, v in tables[name].items()]
     for p in d["panels"]:
