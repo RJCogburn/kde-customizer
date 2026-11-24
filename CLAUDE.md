@@ -81,7 +81,8 @@ and deletes `~/.cache/plasma_theme_<Slug>*` so re-installs pick up new colors. `
 `packaging/appimage/build.sh` (python-appimage -> `trim-runtime.sh` -> AppImage; leaves `build/appdir`) then
 `packaging/build-packages.sh` (stages `build/pkgroot` -> .tar.gz + nfpm .deb/.rpm with the bundled runtime in
 /opt/kde-customizer). `packaging/aur/PKGBUILD` builds from source against Arch's pyside6. CI:
-`.github/workflows/release.yml` on `v*` tags (build, makepkg, install tests on 7 distros, attach to release).
+`.github/workflows/release.yml` on `v*` tags (build, makepkg, install tests on 7 distros, attach to release; the
+makepkg result is attached too as the Arch package, since the AUR has no account for this yet).
 Release = bump version in `pyproject.toml` + `src/kdecustomizer/__init__.py` + `packaging/aur/PKGBUILD`, tag.
 `trim-runtime.sh` must leave every Qt lib resolving inside the bundle — it checks with ldd.
 

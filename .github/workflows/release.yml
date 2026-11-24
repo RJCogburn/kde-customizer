@@ -1,4 +1,4 @@
-# Build every download (AppImage, .deb, .rpm, .tar.gz; the AUR PKGBUILD is built and checked too),
+# Build every download (AppImage, .deb, .rpm, .tar.gz, and the Arch package built from the PKGBUILD),
 # install each one on several distributions and check the program starts and finds its libraries,
 # then on a version tag attach everything to the GitHub release.
 #
@@ -70,6 +70,12 @@ jobs:
           pacman -U --noconfirm /tmp/aur/kde-customizer-*.pkg.tar.zst
           kdec --help | head -2
           kdec build /usr/share/kde-customizer/examples/midnight.toml -o /tmp/b | tail -1
+          mkdir -p arch && cp /tmp/aur/kde-customizer-*.pkg.tar.zst arch/
+      # Attached to the release so Arch users can `pacman -U` it without building
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch
+          path: arch/*.pkg.tar.zst
 
   install-test:
     needs: build
@@ -141,6 +147,12 @@ jobs:
         with:
           name: dist
           path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: arch
+          path: dist
+      - name: Checksums (with the Arch package)
+        run: cd dist && sha256sum KDE_Customizer-*.AppImage kde-customizer* | grep -v '\.sha256' > SHA256SUMS && cat SHA256SUMS
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
