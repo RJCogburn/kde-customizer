@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from .. import build as builder
 from .. import color, spec, system
-from .. import iconset
+from .. import cursorset, iconset
 from .ai_panel import AIPanel
 from .icons_tab import IconsTab
 from .preview import Preview, ensure_icon_paths
@@ -376,6 +376,22 @@ class Main(QMainWindow):
         self.konsole.toggled.connect(self.changed)
         f.addRow(self.konsole)
 
+        f = self._group("Cursors", v)
+        self.c_generate = QCheckBox("Generate cursors from palette")
+        self.c_generate.setToolTip("Recolor an SVG cursor theme to the palette (replaces Cursors above)")
+        self.c_generate.toggled.connect(self.changed)
+        self.c_generate.toggled.connect(self._cursor_generate_toggled)
+        f.addRow(self.c_generate)
+        self.c_base = combo(cursorset.scalable_themes() or ["breeze_cursors"])
+        self.c_base.setToolTip("Installed cursor theme with SVG cursors to recolor")
+        self.c_base.currentTextChanged.connect(self.changed)
+        f.addRow("Base", self.c_base)
+        self.c_fill = QComboBox()
+        self.c_fill.addItems(list(spec.CursorSet.FILLS))
+        self.c_fill.setToolTip("Pointer body color; the outline takes the contrasting palette color")
+        self.c_fill.currentTextChanged.connect(self.changed)
+        f.addRow("Body", self.c_fill)
+
         f = self._group("Splash screen", v)
         self.s_generate = QCheckBox("Generate a splash screen from palette")
         self.s_generate.setToolTip("Theme name and a progress bar in the palette's colors "
@@ -431,6 +447,11 @@ class Main(QMainWindow):
         f.addRow("Buttons", self.d_style)
         v.addStretch()
         return scroll(page)
+
+    def _cursor_generate_toggled(self, on: bool) -> None:
+        self.text["cursors"].setEnabled(not on)
+        self.c_base.setEnabled(on)
+        self.c_fill.setEnabled(on)
 
     def _splash_generate_toggled(self, on: bool) -> None:
         self.text["splash"].setEnabled(not on)
@@ -596,6 +617,10 @@ class Main(QMainWindow):
         self.s_background.setCurrentText(t.splash_screen.background)
         self.s_text.setText(t.splash_screen.text)
         self._splash_generate_toggled(t.splash_screen.generate)
+        self.c_generate.setChecked(t.cursorset.generate)
+        self.c_base.setCurrentText(t.cursorset.base)
+        self.c_fill.setCurrentText(t.cursorset.fill)
+        self._cursor_generate_toggled(t.cursorset.generate)
         self.w_generate.setChecked(t.widgets.generate)
         self.w_radius.setValue(t.widgets.radius)
         self.w_radius.setEnabled(t.widgets.generate)
@@ -643,6 +668,9 @@ class Main(QMainWindow):
         t.splash_screen.generate = self.s_generate.isChecked()
         t.splash_screen.background = self.s_background.currentText()
         t.splash_screen.text = self.s_text.text().strip()
+        t.cursorset.generate = self.c_generate.isChecked()
+        t.cursorset.base = self.c_base.currentText().strip() or "breeze_cursors"
+        t.cursorset.fill = self.c_fill.currentText()
         t.widgets.generate = self.w_generate.isChecked()
         t.widgets.radius = self.w_radius.value()
         t.plasma.radius = self.p_radius.value()

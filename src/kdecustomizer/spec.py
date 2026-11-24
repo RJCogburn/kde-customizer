@@ -97,6 +97,15 @@ class SplashScreen:
 
 
 @dataclass
+class CursorSet:
+    generate: bool = False            # build a cursor theme in the palette; overrides `cursors`
+    base: str = "breeze_cursors"      # installed cursor theme with SVG cursors to recolor and inherit from
+    fill: str = "background"          # cursor body color: background | foreground | accent (outline contrasts)
+
+    FILLS = ("background", "foreground", "accent")
+
+
+@dataclass
 class IconSet:
     generate: bool = False            # build an icon theme matched to the palette; overrides `icons`
     base: str = "Papirus-Dark"        # installed SVG icon theme to recolor and inherit from
@@ -124,7 +133,8 @@ class Theme:
     version: str = "1.0"
     palette: Palette = field(default_factory=Palette)
     icons: str = "breeze"
-    cursors: str = "breeze_cursors"
+    cursors: str = "breeze_cursors"   # installed cursor theme (ignored if cursorset.generate)
+    cursorset: CursorSet = field(default_factory=CursorSet)
     widget_style: str = "Breeze"      # Qt style; with [widgets] generate, the fallback when Kvantum is missing
     plasma_style: str = "default"     # installed Plasma style to use (ignored if plasma.generate)
     plasma: PlasmaStyle = field(default_factory=PlasmaStyle)
@@ -177,6 +187,11 @@ class Theme:
         return self.slug
 
     @property
+    def cursors_name(self) -> str:
+        """The cursor theme actually applied: our generated one, or the named installed one."""
+        return f"{self.slug}-Cursors" if self.cursorset.generate else self.cursors
+
+    @property
     def icons_name(self) -> str:
         """The icon theme actually applied: our generated one, or the named installed one."""
         return f"{self.slug}-Icons" if self.iconset.generate else self.icons
@@ -198,6 +213,7 @@ def from_dict(data: dict[str, Any]) -> Theme:
         "fonts": lambda d: _build(Fonts, d),
         "plasma": lambda d: _build(PlasmaStyle, d),
         "iconset": lambda d: _build(IconSet, d),
+        "cursorset": lambda d: _build(CursorSet, d),
         "widgets": lambda d: _build(Widgets, d),
         "splash_screen": lambda d: _build(SplashScreen, d),
         "panels": lambda lst: [_build(Panel, p) for p in lst],
@@ -213,6 +229,8 @@ def from_dict(data: dict[str, Any]) -> Theme:
         raise ValueError(f"[plasma] opacity must be 0.3..1.0, got {p.opacity}")
     if theme.splash_screen.background not in SplashScreen.BACKGROUNDS:
         raise ValueError(f"[splash_screen] background must be one of {', '.join(SplashScreen.BACKGROUNDS)}")
+    if theme.cursorset.fill not in CursorSet.FILLS:
+        raise ValueError(f"[cursorset] fill must be one of {', '.join(CursorSet.FILLS)}")
     if not 0 <= theme.widgets.radius <= 12:
         raise ValueError(f"[widgets] radius must be 0..12, got {theme.widgets.radius}")
     d = theme.decoration
@@ -275,7 +293,7 @@ def dumps(theme: Theme) -> str:
             continue
         else:
             out.append(f"{_key(k)} = {_val(v)}")
-    for name in ("palette", "plasma", "iconset", "widgets", "decoration", "splash_screen", "fonts"):
+    for name in ("palette", "plasma", "iconset", "cursorset", "widgets", "decoration", "splash_screen", "fonts"):
         out.append(f"\n[{name}]")
         out += [f"{_key(k)} = {_val(v)}" for k, v in tables[name].items()]
     for p in d["panels"]:

@@ -84,6 +84,10 @@ color scheme, Plasma style, Konsole scheme, global theme package, panel layout a
 - `[widgets] generate = true` builds a Kvantum app style from the palette (buttons, fields, menus, tabs,
   check boxes, sliders, scrollbars), with `radius` 0..12 px corners (4 default; 0 = sharp, 6-8 = soft).
   It needs the kvantum package on the user's machine; without it apps keep `widget_style` (keep "Breeze").
+- `[cursorset] generate = true` builds a cursor theme in the palette by recoloring `base` (an installed
+  cursor theme with SVG cursors: "breeze_cursors" or "Breeze_Light"; `cursors` is then ignored). `fill` =
+  the pointer body: "background" (classic: dark body on dark themes, light on light), "foreground"
+  (inverted, high visibility) or "accent" (colorful). Outline, spinner and badges follow the palette.
 - `splash`: keep "org.kde.Breeze" unless asked. `[splash_screen] generate = true` (recommended) makes a
   splash in the palette: the theme name (or `text`) and an accent progress bar, `background` gradient |
   wallpaper (the theme's, dimmed — needs `wallpaper`) | solid.
@@ -306,7 +310,8 @@ def check(theme: spec.Theme, installed: dict[str, list[str]] | None = None) -> l
         r = color.contrast(a, b)
         if r < need:
             out.append(f"{label} contrast is {r:.1f}:1 (needs >= {need}:1)")
-    fields = (["cursors", "widget_style"] + ([] if theme.iconset.generate else ["icons"])
+    fields = (["widget_style"] + ([] if theme.iconset.generate else ["icons"])
+              + ([] if theme.cursorset.generate else ["cursors"])
               + ([] if theme.plasma.generate else ["plasma_style"]))
     for f in fields:
         names = installed.get(f, [])
@@ -318,6 +323,12 @@ def check(theme: spec.Theme, installed: dict[str, list[str]] | None = None) -> l
     if theme.widgets.generate and not system.kvantum_installed():
         out.append("widgets.generate needs Kvantum, which is not installed here: apps will keep "
                    f"{theme.widget_style!r} (install the kvantum package)")
+    if theme.cursorset.generate:
+        from .cursorset import scalable_themes
+        bases = scalable_themes()
+        if theme.cursorset.base.lower() not in {b.lower() for b in bases}:
+            out.append(f"cursorset.base = {theme.cursorset.base!r} is not an installed cursor theme with SVG "
+                       f"cursors (usable: {', '.join(bases) or 'none'})")
     if theme.iconset.generate:
         from .iconset import find_theme_dir
         if find_theme_dir(theme.iconset.base) is None:

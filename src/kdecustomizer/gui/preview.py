@@ -142,7 +142,31 @@ class Preview(QWidget):
         for panel in t.panels:
             self._panel(p, panel)
         self._notification(p, area)
+        self._pointer(p, QPointF(area.x() + 760, area.y() + 470))
         p.end()
+
+    def _pointer(self, p: QPainter, hotspot: QPointF) -> None:
+        """The mouse pointer from the theme's cursors (24 px nominal), hotspot at `hotspot`."""
+        t = self.theme
+        key = (t.cursorset.generate, t.cursorset.base, t.cursorset.fill, t.cursors,
+               t.palette.background, t.palette.foreground, t.palette.accent)
+        if getattr(self, "_ptr_key", None) != key:
+            self._ptr_key = key
+            from .. import cursorset
+            try:
+                self._ptr = cursorset.preview_svg(t)
+            except (OSError, ValueError):
+                self._ptr = None
+        if not self._ptr:
+            return
+        from PySide6.QtCore import QByteArray
+        from PySide6.QtSvg import QSvgRenderer
+        text, frame = self._ptr
+        r = QSvgRenderer(QByteArray(text.encode()))
+        k = 24 / frame.get("nominal_size", 24)
+        size = r.defaultSize()
+        r.render(p, QRectF(hotspot.x() - frame.get("hotspot_x", 0) * k, hotspot.y() - frame.get("hotspot_y", 0) * k,
+                           size.width() * k, size.height() * k))
 
     def c(self, section: str, key: str, alpha: float = 1.0) -> QColor:
         return _q(self.s[section][key], alpha)

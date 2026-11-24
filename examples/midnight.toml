@@ -26,6 +26,12 @@ radius = 12        # corner radius of floating panels/popups/tooltips (Breeze: 6
 opacity = 0.8      # panel/popup fill opacity (Breeze: 0.85)
 outline = false    # thin text-colored edge around panels and popups
 
+# Cursors in the palette, recolored from an installed SVG cursor theme (overrides `cursors`)
+[cursorset]
+generate = true
+base = "breeze_cursors"
+fill = "background"   # pointer body: background | foreground (inverted) | accent
+
 # Kvantum app style in the palette (needs the kvantum package; without it apps keep widget_style)
 [widgets]
 generate = true

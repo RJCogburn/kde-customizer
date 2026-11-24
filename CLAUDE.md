@@ -27,6 +27,15 @@ Target system: Plasma 6.8, Qt 6, Python 3.11+ (dev box runs 3.14, CachyOS).
   A1111/Forge. `to_icon()` cuts the background (rembg if installed, else edge flood fill).
   Running image gens uses the user's GPU — test with `--only` and a couple of icons.
 
+## Cursors (`[cursorset] generate = true`)
+`cursorset.py` → `build/<Slug>/cursors/<Slug>-Cursors/` (installed to `$DATA/icons/`, applied with
+`plasma-apply-cursortheme`): recolors the base's `cursors_scalable/<name>/*.svg` (KWin/Wayland; `metadata.json`
+holds hotspot in SVG px, nominal size, frame delay) — unfilled bodies get the root `fill`, blurred shadows are
+pinned black, grays slide body→outline by lightness, Breeze's colors map to palette roles. `cursors/` Xcursors
+(X11/XWayland) are rendered from those SVGs with QtSvg at `XCURSOR_SIZES`; without PySide6 the base's are copied.
+Aliases stay relative symlinks. Only bases with `cursors_scalable/` work (`scalable_themes()`).
+Check with a contact sheet: parse the Xcursor images and paint them on dark + light backgrounds.
+
 ## GUI
 `gui/app.py` = editor tabs (left) + `gui/preview.py` live preview (right) + `gui/ai_panel.py` on top.
 The preview paints a mock desktop on a fixed 1280x800 canvas from `colors.scheme()` / `konsole.ansi()` — the
@@ -98,7 +107,7 @@ Check shape changes by tiling the pieces with `QSvgRenderer.render(p, id, rect)`
 and deletes `~/.cache/plasma_theme_<Slug>*` so re-installs pick up new colors. `Theme.plasma_style_name` is what LnF sets.
 
 ## Roadmap (not built yet)
-1. **Cursors, SDDM** — SDDM needs root (pkexec).
+1. **SDDM** login theme — needs root (pkexec).
 2. **Snapshot** — `kdec snapshot` to read the current desktop config into a spec.
 3. GUI: tweaks editor; preview of the Kickoff menu / dialogs.
 

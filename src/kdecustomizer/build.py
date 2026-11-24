@@ -7,7 +7,7 @@ import tarfile
 from dataclasses import replace
 from pathlib import Path
 
-from . import iconset
+from . import cursorset, iconset
 from .generators import aurorae, colors, konsole, kvantum, layout, lookandfeel, plasmastyle, splash
 from .spec import Theme, save
 
@@ -88,6 +88,9 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
         sig = Path(theme.iconset.signature_dir) if theme.iconset.signature_dir else None
         if sig and sig.is_dir():  # bundle the generated originals so the shared spec rebuilds the same
             shutil.copytree(sig, out / "signature-icons")
+
+    if theme.cursorset.generate:
+        cursorset.build(theme, out / "cursors")
 
     # Ship the editable spec too, with the wallpaper / signature icons pointing at the bundled copies.
     portable = replace(theme, wallpaper=f"wallpapers/{Path(theme.wallpaper).name}" if theme.wallpaper else "")
@@ -174,6 +177,14 @@ def _write_install_script(theme: Theme, out: Path) -> None:
             f'cp -r "$DIR/icons/{name}" "$DATA/icons/"',
             'rm -f "${XDG_CACHE_HOME:-$HOME/.cache}"/icon-cache.kcache',
         ]
+    if theme.cursorset.generate:
+        name = theme.cursors_name
+        s += [
+            'echo "==> cursor theme"',
+            'mkdir -p "$DATA/icons"',
+            f'rm -rf "$DATA/icons/{name}"',
+            f'cp -r "$DIR/cursors/{name}" "$DATA/icons/"',
+        ]
     if theme.widgets.generate:
         name = theme.kvantum_name
         s += [
@@ -227,6 +238,9 @@ def _write_install_script(theme: Theme, out: Path) -> None:
         s += ["CHANGEICONS=\"$(ls /usr/lib/plasma-changeicons /usr/lib/*/plasma-changeicons "
               "/usr/libexec/plasma-changeicons 2>/dev/null | head -n1 || true)\"",
               f'if [[ -n "$CHANGEICONS" ]]; then "$CHANGEICONS" {q(theme.icons_name)} || true; fi']
+    if theme.cursorset.generate:
+        # LnF sets it only when the global theme changes; this also makes KWin reload it now
+        s.append(f"plasma-apply-cursortheme {q(theme.cursors_name)} || true")
     if theme.plasma.generate:
         # LnF already sets plasmarc; this makes a running shell reload the style immediately.
         s.append(f"plasma-apply-desktoptheme {q(theme.plasma_style_name)} || true")

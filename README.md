@@ -12,6 +12,8 @@ From about seven palette colors, one theme spec generates:
   outline, blur and adaptive transparency
 - an **app style** (Kvantum: buttons, fields, menus, tabs in your palette, with your corner radius;
   needs the `kvantum` package, otherwise apps keep Breeze)
+- a **cursor theme** in your palette (Breeze's cursors recolored: dark, inverted or accent body), for
+  Wayland and X11 apps
 - a **splash screen** (theme name and a progress bar over a palette gradient or your dimmed wallpaper)
 - a **window decoration** (Aurorae title bars in your palette: corner radius, title height, symbol or
   colored-dot buttons)
