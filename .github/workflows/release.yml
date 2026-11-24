@@ -61,7 +61,9 @@ jobs:
           mkdir /tmp/aur
           git config --global --add safe.directory "$PWD"
           git archive --prefix="kde-customizer-$ver/" -o "/tmp/aur/kde-customizer-$ver.tar.gz" HEAD
-          sed "s|^source=.*|source=(\"kde-customizer-$ver.tar.gz\")|" packaging/aur/PKGBUILD > /tmp/aur/PKGBUILD
+          # local snapshot, so the pinned checksum of the tag tarball doesn't apply
+          sed -e "s|^source=.*|source=(\"kde-customizer-$ver.tar.gz\")|" -e "s|^sha256sums=.*|sha256sums=('SKIP')|" \
+            packaging/aur/PKGBUILD > /tmp/aur/PKGBUILD
           chown -R builder /tmp/aur
           # install the PKGBUILD's dependencies as root, then build as a normal user
           deps=$(cd /tmp/aur && bash -c 'source PKGBUILD; echo "${depends[@]} ${makedepends[@]}"')
