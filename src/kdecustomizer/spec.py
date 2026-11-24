@@ -88,6 +88,15 @@ class Widgets:
 
 
 @dataclass
+class SplashScreen:
+    generate: bool = False            # build a splash screen in the palette; overrides `splash`
+    background: str = "gradient"      # gradient | wallpaper (the theme's, dimmed) | solid
+    text: str = ""                    # big text in the middle; "" = the theme name
+
+    BACKGROUNDS = ("gradient", "wallpaper", "solid")
+
+
+@dataclass
 class IconSet:
     generate: bool = False            # build an icon theme matched to the palette; overrides `icons`
     base: str = "Papirus-Dark"        # installed SVG icon theme to recolor and inherit from
@@ -121,7 +130,8 @@ class Theme:
     plasma: PlasmaStyle = field(default_factory=PlasmaStyle)
     iconset: IconSet = field(default_factory=IconSet)
     widgets: Widgets = field(default_factory=Widgets)
-    splash: str = "org.kde.Breeze"
+    splash: str = "org.kde.Breeze"    # installed splash (ignored if splash_screen.generate)
+    splash_screen: SplashScreen = field(default_factory=SplashScreen)
     wallpaper: str = ""               # path to image; copied into the package
     decoration: Decoration = field(default_factory=Decoration)
     fonts: Fonts = field(default_factory=Fonts)
@@ -157,6 +167,11 @@ class Theme:
         return self.decoration.library, self.decoration.theme
 
     @property
+    def splash_name(self) -> str:
+        """The splash actually used: our Look-and-Feel package's own, or the named installed one."""
+        return self.id if self.splash_screen.generate else self.splash
+
+    @property
     def kvantum_name(self) -> str:
         """Folder/theme name of the generated Kvantum theme."""
         return self.slug
@@ -184,6 +199,7 @@ def from_dict(data: dict[str, Any]) -> Theme:
         "plasma": lambda d: _build(PlasmaStyle, d),
         "iconset": lambda d: _build(IconSet, d),
         "widgets": lambda d: _build(Widgets, d),
+        "splash_screen": lambda d: _build(SplashScreen, d),
         "panels": lambda lst: [_build(Panel, p) for p in lst],
     }
     for key, fn in sub.items():
@@ -195,6 +211,8 @@ def from_dict(data: dict[str, Any]) -> Theme:
         raise ValueError(f"[plasma] radius must be 0..32, got {p.radius}")
     if not 0.3 <= p.opacity <= 1.0:
         raise ValueError(f"[plasma] opacity must be 0.3..1.0, got {p.opacity}")
+    if theme.splash_screen.background not in SplashScreen.BACKGROUNDS:
+        raise ValueError(f"[splash_screen] background must be one of {', '.join(SplashScreen.BACKGROUNDS)}")
     if not 0 <= theme.widgets.radius <= 12:
         raise ValueError(f"[widgets] radius must be 0..12, got {theme.widgets.radius}")
     d = theme.decoration
@@ -257,7 +275,7 @@ def dumps(theme: Theme) -> str:
             continue
         else:
             out.append(f"{_key(k)} = {_val(v)}")
-    for name in ("palette", "plasma", "iconset", "widgets", "decoration", "fonts"):
+    for name in ("palette", "plasma", "iconset", "widgets", "decoration", "splash_screen", "fonts"):
         out.append(f"\n[{name}]")
         out += [f"{_key(k)} = {_val(v)}" for k, v in tables[name].items()]
     for p in d["panels"]:

@@ -31,6 +31,12 @@ outline = false    # thin text-colored edge around panels and popups
 generate = true
 radius = 5         # corners of buttons, fields, menus, tabs
 
+# Splash screen in the palette: theme name + a progress bar (overrides `splash`)
+[splash_screen]
+generate = true
+background = "gradient"   # gradient | wallpaper (the theme's, dimmed) | solid
+text = ""                 # "" = the theme name
+
 [decoration]
 buttons_left = "M"
 buttons_right = "IAX"

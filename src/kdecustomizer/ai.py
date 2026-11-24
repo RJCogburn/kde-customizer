@@ -84,7 +84,9 @@ color scheme, Plasma style, Konsole scheme, global theme package, panel layout a
 - `[widgets] generate = true` builds a Kvantum app style from the palette (buttons, fields, menus, tabs,
   check boxes, sliders, scrollbars), with `radius` 0..12 px corners (4 default; 0 = sharp, 6-8 = soft).
   It needs the kvantum package on the user's machine; without it apps keep `widget_style` (keep "Breeze").
-- `splash`: keep "org.kde.Breeze" unless asked.
+- `splash`: keep "org.kde.Breeze" unless asked. `[splash_screen] generate = true` (recommended) makes a
+  splash in the palette: the theme name (or `text`) and an accent progress bar, `background` gradient |
+  wallpaper (the theme's, dimmed — needs `wallpaper`) | solid.
 - `[decoration]` window title-bar buttons: `buttons_left` / `buttons_right` are strings of codes:
   M menu, S on-all-desktops, H help, F keep-above, B keep-below, I minimize, A maximize, X close,
   _ spacer. macOS-like = left "XIA", right "". Windows-like = left "M", right "IAX".
@@ -311,6 +313,8 @@ def check(theme: spec.Theme, installed: dict[str, list[str]] | None = None) -> l
         val = getattr(theme, f)
         if names and val and val.lower() not in {n.lower() for n in names}:
             out.append(f"{f} = {val!r} is not installed (installed: {', '.join(names)})")
+    if theme.splash_screen.generate and theme.splash_screen.background == "wallpaper" and not theme.wallpaper:
+        out.append('splash_screen.background = "wallpaper" but no wallpaper is set: the splash uses the gradient')
     if theme.widgets.generate and not system.kvantum_installed():
         out.append("widgets.generate needs Kvantum, which is not installed here: apps will keep "
                    f"{theme.widget_style!r} (install the kvantum package)")

@@ -56,6 +56,13 @@ config: copy the build into `<tmp>/Kvantum/`, then run `/usr/bin/python3` (syste
 load the system plugin) with `XDG_CONFIG_HOME=<tmp> QT_STYLE_OVERRIDE=kvantum QT_QPA_PLATFORM=offscreen`.
 Reference themes: `/usr/share/Kvantum/` (KvFlat is the closest to ours).
 
+## Splash screen (`[splash_screen] generate = true`)
+`generators/splash.py` → `contents/splash/Splash.qml` in the LnF (+ `images/background.*` = the wallpaper, when
+`background = "wallpaper"`), and ksplashrc `Theme` = the LnF id (`Theme.splash_name`). ksplashqml raises the root's
+`stage` 1→6; ours fades in from stage 2 and fills a bar with stage/6. Only QtQuick + Kirigami. Render offscreen with
+`/usr/bin/python3` (system PySide6 has Kirigami): QQuickView on Splash.qml, set `stage`, `grabWindow()`.
+`ksplashqml --test <lnf id>` shows it for real (full screen, a few seconds).
+
 ## What Look-and-Feel can and can't do
 `plasma-apply-lookandfeel` only applies the keys in `contents/defaults` (colors, widget style, icons, plasma style,
 cursors, decoration, splash) and the layout JS with `--resetLayout`. Anything else (fonts, decoration buttons,
@@ -91,7 +98,7 @@ Check shape changes by tiling the pieces with `QSvgRenderer.render(p, id, rect)`
 and deletes `~/.cache/plasma_theme_<Slug>*` so re-installs pick up new colors. `Theme.plasma_style_name` is what LnF sets.
 
 ## Roadmap (not built yet)
-1. **Cursors, SDDM, splash** — SDDM needs root (pkexec); splash = QML package in the LnF.
+1. **Cursors, SDDM** — SDDM needs root (pkexec).
 2. **Snapshot** — `kdec snapshot` to read the current desktop config into a spec.
 3. GUI: tweaks editor; preview of the Kickoff menu / dialogs.
 

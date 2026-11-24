@@ -8,7 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from . import iconset
-from .generators import aurorae, colors, konsole, kvantum, layout, lookandfeel, plasmastyle
+from .generators import aurorae, colors, konsole, kvantum, layout, lookandfeel, plasmastyle, splash
 from .spec import Theme, save
 
 _FONT_KEYS = {  # Fonts field -> (file, group, key)
@@ -31,6 +31,10 @@ def all_tweaks(theme: Theme) -> dict[str, dict[str, dict[str, object]]]:
     d = theme.decoration
     put("kwinrc", "org.kde.kdecoration2", "ButtonsOnLeft", d.buttons_left)
     put("kwinrc", "org.kde.kdecoration2", "ButtonsOnRight", d.buttons_right)
+    if theme.splash_screen.generate:
+        # same reason as below: LnF skips its defaults when re-applying the same global theme
+        put("ksplashrc", "KSplash", "Engine", "KSplashQML")
+        put("ksplashrc", "KSplash", "Theme", theme.splash_name)
     if d.generate:
         # LnF sets these too, but only when the global theme changes; this re-applies on every install.
         lib, deco = theme.decoration_kwin
@@ -72,6 +76,12 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
     (lnf / "contents/defaults").write_text(lookandfeel.defaults(theme))
     (lnf / "contents/layouts/org.kde.plasma.desktop-layout.js").write_text(layout.generate(theme))
     (out / "layout.js").write_text(layout.generate(theme))
+    if theme.splash_screen.generate:
+        (lnf / "contents/splash").mkdir(parents=True)
+        (lnf / "contents/splash/Splash.qml").write_text(splash.qml(theme))
+        if bg := splash.background_file(theme):
+            (lnf / "contents/splash/images").mkdir()
+            shutil.copy2(Path(theme.wallpaper).expanduser(), lnf / "contents/splash/images" / bg)
 
     if theme.iconset.generate:
         iconset.build(theme, out / "icons")

@@ -376,6 +376,23 @@ class Main(QMainWindow):
         self.konsole.toggled.connect(self.changed)
         f.addRow(self.konsole)
 
+        f = self._group("Splash screen", v)
+        self.s_generate = QCheckBox("Generate a splash screen from palette")
+        self.s_generate.setToolTip("Theme name and a progress bar in the palette's colors "
+                                   "(replaces the Splash above)")
+        self.s_generate.toggled.connect(self.changed)
+        self.s_generate.toggled.connect(self._splash_generate_toggled)
+        f.addRow(self.s_generate)
+        self.s_background = QComboBox()
+        self.s_background.addItems(list(spec.SplashScreen.BACKGROUNDS))
+        self.s_background.setToolTip("wallpaper uses the theme's wallpaper, dimmed; without one it falls "
+                                     "back to the gradient")
+        self.s_background.currentTextChanged.connect(self.changed)
+        f.addRow("Background", self.s_background)
+        self.s_text = QLineEdit(placeholderText="the theme name")
+        self.s_text.textChanged.connect(self.changed)
+        f.addRow("Text", self.s_text)
+
         f = self._group("Window decoration", v)
         self.deco: dict[str, QLineEdit] = {}
         for attr, label, tip in [
@@ -414,6 +431,11 @@ class Main(QMainWindow):
         f.addRow("Buttons", self.d_style)
         v.addStretch()
         return scroll(page)
+
+    def _splash_generate_toggled(self, on: bool) -> None:
+        self.text["splash"].setEnabled(not on)
+        self.s_background.setEnabled(on)
+        self.s_text.setEnabled(on)
 
     def _deco_generate_toggled(self, on: bool) -> None:
         for w in (self.deco["library"], self.deco["theme"]):
@@ -570,6 +592,10 @@ class Main(QMainWindow):
             cf.set(getattr(t.palette, k))
         for k, c in self.plasma.items():
             c.setChecked(getattr(t.plasma, k))
+        self.s_generate.setChecked(t.splash_screen.generate)
+        self.s_background.setCurrentText(t.splash_screen.background)
+        self.s_text.setText(t.splash_screen.text)
+        self._splash_generate_toggled(t.splash_screen.generate)
         self.w_generate.setChecked(t.widgets.generate)
         self.w_radius.setValue(t.widgets.radius)
         self.w_radius.setEnabled(t.widgets.generate)
@@ -614,6 +640,9 @@ class Main(QMainWindow):
                 pass  # keep last valid color while the user is mid-typing
         for k, c in self.plasma.items():
             setattr(t.plasma, k, c.isChecked())
+        t.splash_screen.generate = self.s_generate.isChecked()
+        t.splash_screen.background = self.s_background.currentText()
+        t.splash_screen.text = self.s_text.text().strip()
         t.widgets.generate = self.w_generate.isChecked()
         t.widgets.radius = self.w_radius.value()
         t.plasma.radius = self.p_radius.value()

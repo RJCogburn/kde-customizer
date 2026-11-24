@@ -32,5 +32,5 @@ def defaults(theme: Theme) -> str:
         "[plasmarc][Theme]", f"name={theme.plasma_style_name}", "",
         "[kcminputrc][Mouse]", f"cursorTheme={theme.cursors}", "",
         "[kwinrc][org.kde.kdecoration2]", f"library={lib}", f"theme={deco}", "",
-        "[ksplashrc][KSplash]", f"Theme={theme.splash}", "",
+        "[ksplashrc][KSplash]", f"Theme={theme.splash_name}", "",
     ])
