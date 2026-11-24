@@ -78,6 +78,8 @@ overrides:
       - libxkbcommon-x11-0
     recommends:
       - plasma-workspace
+    suggests:
+      - qt6-style-kvantum   # for generated app styles ([widgets] generate)
   rpm:
     # library names rather than package names: Fedora and openSUSE name packages differently
     depends:
@@ -108,3 +110,5 @@ overrides:
       - libxkbcommon-x11.so.0()(64bit)
     recommends:
       - plasma-workspace
+    suggests:
+      - kvantum             # for generated app styles ([widgets] generate)

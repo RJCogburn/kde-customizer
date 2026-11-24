@@ -26,6 +26,11 @@ radius = 12        # corner radius of floating panels/popups/tooltips (Breeze: 6
 opacity = 0.8      # panel/popup fill opacity (Breeze: 0.85)
 outline = false    # thin text-colored edge around panels and popups
 
+# Kvantum app style in the palette (needs the kvantum package; without it apps keep widget_style)
+[widgets]
+generate = true
+radius = 5         # corners of buttons, fields, menus, tabs
+
 [decoration]
 buttons_left = "M"
 buttons_right = "IAX"

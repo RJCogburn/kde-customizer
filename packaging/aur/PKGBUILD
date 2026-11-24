@@ -13,7 +13,8 @@ optdepends=('claude-code: AI design with your Claude Code login (default AI prov
             'python-anthropic: AI design with a Claude API key'
             'python-pypdf: read PDF references with non-Claude AI providers'
             'python-rembg: cleaner cut-outs for icons rendered by a local image AI'
-            'papirus-icon-theme: a good base for generated icon sets')
+            'papirus-icon-theme: a good base for generated icon sets'
+            'kvantum: apply generated app styles ([widgets] generate)')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('74471459f55b23d30dec28030d3bb2efccbe532198dae2336a8281ef1aec17de')
 

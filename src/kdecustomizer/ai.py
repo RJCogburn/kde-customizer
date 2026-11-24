@@ -81,6 +81,9 @@ color scheme, Plasma style, Konsole scheme, global theme package, panel layout a
   text-colored edge around panels and popups (good for flat/high-contrast designs).
   With `generate = false`, `plasma_style` names an installed style.
 - `icons`, `cursors`, `plasma_style`, `widget_style`: must be INSTALLED names (list below).
+- `[widgets] generate = true` builds a Kvantum app style from the palette (buttons, fields, menus, tabs,
+  check boxes, sliders, scrollbars), with `radius` 0..12 px corners (4 default; 0 = sharp, 6-8 = soft).
+  It needs the kvantum package on the user's machine; without it apps keep `widget_style` (keep "Breeze").
 - `splash`: keep "org.kde.Breeze" unless asked.
 - `[decoration]` window title-bar buttons: `buttons_left` / `buttons_right` are strings of codes:
   M menu, S on-all-desktops, H help, F keep-above, B keep-below, I minimize, A maximize, X close,
@@ -308,6 +311,9 @@ def check(theme: spec.Theme, installed: dict[str, list[str]] | None = None) -> l
         val = getattr(theme, f)
         if names and val and val.lower() not in {n.lower() for n in names}:
             out.append(f"{f} = {val!r} is not installed (installed: {', '.join(names)})")
+    if theme.widgets.generate and not system.kvantum_installed():
+        out.append("widgets.generate needs Kvantum, which is not installed here: apps will keep "
+                   f"{theme.widget_style!r} (install the kvantum package)")
     if theme.iconset.generate:
         from .iconset import find_theme_dir
         if find_theme_dir(theme.iconset.base) is None:

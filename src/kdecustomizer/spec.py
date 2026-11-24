@@ -81,6 +81,13 @@ class PlasmaStyle:
 
 
 @dataclass
+class Widgets:
+    generate: bool = False            # build a Kvantum app style from the palette (needs Kvantum installed;
+                                      # without it, apps keep `widget_style`)
+    radius: int = 4                   # corner radius (px) of buttons, fields, menus, tabs, check boxes
+
+
+@dataclass
 class IconSet:
     generate: bool = False            # build an icon theme matched to the palette; overrides `icons`
     base: str = "Papirus-Dark"        # installed SVG icon theme to recolor and inherit from
@@ -109,10 +116,11 @@ class Theme:
     palette: Palette = field(default_factory=Palette)
     icons: str = "breeze"
     cursors: str = "breeze_cursors"
-    widget_style: str = "Breeze"      # Qt style; "kvantum" once a Kvantum theme is generated
+    widget_style: str = "Breeze"      # Qt style; with [widgets] generate, the fallback when Kvantum is missing
     plasma_style: str = "default"     # installed Plasma style to use (ignored if plasma.generate)
     plasma: PlasmaStyle = field(default_factory=PlasmaStyle)
     iconset: IconSet = field(default_factory=IconSet)
+    widgets: Widgets = field(default_factory=Widgets)
     splash: str = "org.kde.Breeze"
     wallpaper: str = ""               # path to image; copied into the package
     decoration: Decoration = field(default_factory=Decoration)
@@ -149,6 +157,11 @@ class Theme:
         return self.decoration.library, self.decoration.theme
 
     @property
+    def kvantum_name(self) -> str:
+        """Folder/theme name of the generated Kvantum theme."""
+        return self.slug
+
+    @property
     def icons_name(self) -> str:
         """The icon theme actually applied: our generated one, or the named installed one."""
         return f"{self.slug}-Icons" if self.iconset.generate else self.icons
@@ -170,6 +183,7 @@ def from_dict(data: dict[str, Any]) -> Theme:
         "fonts": lambda d: _build(Fonts, d),
         "plasma": lambda d: _build(PlasmaStyle, d),
         "iconset": lambda d: _build(IconSet, d),
+        "widgets": lambda d: _build(Widgets, d),
         "panels": lambda lst: [_build(Panel, p) for p in lst],
     }
     for key, fn in sub.items():
@@ -181,6 +195,8 @@ def from_dict(data: dict[str, Any]) -> Theme:
         raise ValueError(f"[plasma] radius must be 0..32, got {p.radius}")
     if not 0.3 <= p.opacity <= 1.0:
         raise ValueError(f"[plasma] opacity must be 0.3..1.0, got {p.opacity}")
+    if not 0 <= theme.widgets.radius <= 12:
+        raise ValueError(f"[widgets] radius must be 0..12, got {theme.widgets.radius}")
     d = theme.decoration
     if d.title_align not in d.TITLE_ALIGNS:
         raise ValueError(f"[decoration] title_align must be one of {', '.join(d.TITLE_ALIGNS)}")
@@ -241,7 +257,7 @@ def dumps(theme: Theme) -> str:
             continue
         else:
             out.append(f"{_key(k)} = {_val(v)}")
-    for name in ("palette", "plasma", "iconset", "decoration", "fonts"):
+    for name in ("palette", "plasma", "iconset", "widgets", "decoration", "fonts"):
         out.append(f"\n[{name}]")
         out += [f"{_key(k)} = {_val(v)}" for k, v in tables[name].items()]
     for p in d["panels"]:

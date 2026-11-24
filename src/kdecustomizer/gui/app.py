@@ -347,6 +347,24 @@ class Main(QMainWindow):
         f.addRow("Installed style", self.text["plasma_style"])
         self.plasma["generate"].toggled.connect(self._plasma_generate_toggled)
 
+        f = self._group("App style", v)
+        self.w_generate = QCheckBox("Generate a Kvantum style from palette")
+        self.w_generate.setToolTip("Buttons, fields, menus and tabs drawn in the theme's colors. Needs the "
+                                   "kvantum package; without it apps keep the App style chosen below.")
+        self.w_generate.toggled.connect(self.changed)
+        self.w_generate.toggled.connect(lambda on: self.w_radius.setEnabled(on))
+        f.addRow(self.w_generate)
+        self.w_radius = QSpinBox(minimum=0, maximum=12, suffix=" px",
+                                 toolTip="Corner radius of buttons, fields, menus, tabs and check boxes")
+        self.w_radius.valueChanged.connect(self.changed)
+        f.addRow("Corner radius", self.w_radius)
+        if not system.kvantum_installed():
+            note = QLabel("Kvantum isn't installed here, so the preview and this machine keep the "
+                          "fallback style. The theme still includes it for others.")
+            note.setWordWrap(True)
+            note.setStyleSheet("color: palette(placeholder-text)")
+            f.addRow(note)
+
         f = self._group("Look", v)
         for attr, label in [("icons", "Icons"), ("cursors", "Cursors"), ("widget_style", "App style")]:
             c = combo(self.installed[attr])
@@ -552,6 +570,9 @@ class Main(QMainWindow):
             cf.set(getattr(t.palette, k))
         for k, c in self.plasma.items():
             c.setChecked(getattr(t.plasma, k))
+        self.w_generate.setChecked(t.widgets.generate)
+        self.w_radius.setValue(t.widgets.radius)
+        self.w_radius.setEnabled(t.widgets.generate)
         self.p_radius.setValue(t.plasma.radius)
         self.p_opacity.setValue(round(t.plasma.opacity * 100))
         self._plasma_generate_toggled(t.plasma.generate)
@@ -593,6 +614,8 @@ class Main(QMainWindow):
                 pass  # keep last valid color while the user is mid-typing
         for k, c in self.plasma.items():
             setattr(t.plasma, k, c.isChecked())
+        t.widgets.generate = self.w_generate.isChecked()
+        t.widgets.radius = self.w_radius.value()
         t.plasma.radius = self.p_radius.value()
         t.plasma.opacity = self.p_opacity.value() / 100
         t.konsole = self.konsole.isChecked()

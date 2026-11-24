@@ -410,6 +410,7 @@ class Preview(QWidget):
 
     def _app_window(self, p: QPainter, rect: QRectF) -> None:
         s = self.c
+        wr = self.theme.widgets.radius if self.theme.widgets.generate else 4   # button/field corners
         self._shadow(p, rect, self._window_radius()[0], 1.0)
         self._window_bg(p, rect, s("Colors:Window", "BackgroundNormal"))
         tb = self._titlebar(p, rect, "Files — Home", True)
@@ -425,20 +426,20 @@ class Preview(QWidget):
             b = QRectF(bx, hdr.y() + 7, 28, 28)
             p.setPen(QPen(s("Colors:Button", "ForegroundNormal", 0.18), 1))
             p.setBrush(s("Colors:Button", "BackgroundNormal"))
-            p.drawRoundedRect(b, 4, 4)
+            p.drawRoundedRect(b, wr, wr)
             p.setPen(s("Colors:Button", "ForegroundNormal"))
             p.drawText(b, Qt.AlignCenter, label)
             bx += 34
         field = QRectF(bx + 6, hdr.y() + 7, rect.width() - (bx - rect.x()) - 140, 28)
         p.setPen(QPen(s("Colors:View", "DecorationFocus"), 1.5))
         p.setBrush(s("Colors:View", "BackgroundNormal"))
-        p.drawRoundedRect(field, 4, 4)
+        p.drawRoundedRect(field, wr, wr)
         p.setPen(s("Colors:View", "ForegroundNormal"))
         p.drawText(field.adjusted(10, 0, 0, 0), Qt.AlignVCenter, "Home › Pictures › Wallpapers")
         btn = QRectF(field.right() + 10, hdr.y() + 7, 104, 28)
         p.setPen(Qt.NoPen)
         p.setBrush(s("Colors:Selection", "BackgroundNormal"))
-        p.drawRoundedRect(btn, 4, 4)
+        p.drawRoundedRect(btn, wr, wr)
         p.setPen(s("Colors:Selection", "ForegroundNormal"))
         p.drawText(btn, Qt.AlignCenter, "Apply")
         p.fillRect(QRectF(hdr.x(), hdr.bottom() - 1, hdr.width(), 1), s("Colors:Window", "ForegroundNormal", 0.12))
@@ -458,7 +459,7 @@ class Preview(QWidget):
             if i == 3:
                 p.setPen(Qt.NoPen)
                 p.setBrush(s("Colors:Selection", "BackgroundNormal", 0.3))
-                p.drawRoundedRect(row, 4, 4)
+                p.drawRoundedRect(row, wr, wr)
             self._icon(p, icon, QPointF(row.x() + 16, row.center().y()), 18)
             p.setPen(s("Colors:Window", "ForegroundNormal"))
             p.drawText(row.adjusted(32, 0, 0, 0), Qt.AlignVCenter, name)

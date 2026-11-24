@@ -8,7 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from . import iconset
-from .generators import aurorae, colors, konsole, layout, lookandfeel, plasmastyle
+from .generators import aurorae, colors, konsole, kvantum, layout, lookandfeel, plasmastyle
 from .spec import Theme, save
 
 _FONT_KEYS = {  # Fonts field -> (file, group, key)
@@ -102,6 +102,12 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
         for name, text in aurorae.files(theme).items():
             (deco / name).write_text(text)
 
+    if theme.widgets.generate:
+        kv = out / "kvantum" / theme.kvantum_name
+        kv.mkdir(parents=True)
+        for name, text in kvantum.files(theme).items():
+            (kv / name).write_text(text)
+
     if theme.konsole:
         (out / "konsole").mkdir()
         (out / "konsole" / f"{theme.slug}.colorscheme").write_text(konsole.colorscheme(theme))
@@ -158,6 +164,16 @@ def _write_install_script(theme: Theme, out: Path) -> None:
             f'cp -r "$DIR/icons/{name}" "$DATA/icons/"',
             'rm -f "${XDG_CACHE_HOME:-$HOME/.cache}"/icon-cache.kcache',
         ]
+    if theme.widgets.generate:
+        name = theme.kvantum_name
+        s += [
+            'echo "==> app style (Kvantum)"',
+            'CONF="${XDG_CONFIG_HOME:-$HOME/.config}"',
+            'mkdir -p "$CONF/Kvantum"',
+            f'rm -rf "$CONF/Kvantum/{name}"',
+            f'cp -r "$DIR/kvantum/{name}" "$CONF/Kvantum/"',
+            f'kwriteconfig6 --file "$CONF/Kvantum/kvantum.kvconfig" --group General --key theme {q(name)}',
+        ]
     if theme.decoration.generate:
         name = theme.decoration_name
         s += [
@@ -181,6 +197,21 @@ def _write_install_script(theme: Theme, out: Path) -> None:
         "fi",
         f"plasma-apply-colorscheme {q(theme.slug)} || true",
     ]
+    if theme.widgets.generate:
+        # LnF set the fallback style; switch to Kvantum only where it's installed.
+        s += [
+            "if command -v kvantummanager >/dev/null 2>&1 \\",
+            "   || ls /usr/lib/qt6/plugins/styles/libkvantum.so /usr/lib64/qt6/plugins/styles/libkvantum.so \\",
+            "         /usr/lib/*/qt6/plugins/styles/libkvantum.so >/dev/null 2>&1; then",
+            "  kwriteconfig6 --file kdeglobals --group KDE --key widgetStyle kvantum",
+            "  # tell running KDE apps the style changed (KGlobalSettings::StyleChanged = 2)",
+            "  dbus-send --session --type=signal /KGlobalSettings org.kde.KGlobalSettings.notifyChange "
+            "int32:2 int32:0 || true",
+            "else",
+            f'  echo "Kvantum is not installed: apps keep the {theme.widget_style} style. '
+            'Install kvantum and run this again."',
+            "fi",
+        ]
     if theme.iconset.generate:
         # Re-announce the icon theme so running apps reload it even when only its files changed.
         s += ["CHANGEICONS=\"$(ls /usr/lib/plasma-changeicons /usr/lib/*/plasma-changeicons "

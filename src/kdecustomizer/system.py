@@ -46,6 +46,14 @@ def widget_styles() -> list[str]:
     return styles
 
 
+def kvantum_installed() -> bool:
+    """Kvantum's Qt 6 style plugin (or its manager) is on this machine."""
+    import shutil
+    plugin_dirs = [Path("/usr/lib/qt6/plugins/styles"), Path("/usr/lib64/qt6/plugins/styles"),
+                   *Path("/usr/lib").glob("*/qt6/plugins/styles")]
+    return shutil.which("kvantummanager") is not None or any((d / "libkvantum.so").exists() for d in plugin_dirs)
+
+
 def summary() -> dict[str, list[str]]:
     return {
         "icons": icon_themes(),
