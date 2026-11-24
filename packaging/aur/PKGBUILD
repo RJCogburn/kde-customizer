@@ -1,6 +1,6 @@
 # Maintainer: RJCogburn <28759507+RJCogburn@users.noreply.github.com>
 pkgname=kde-customizer
-pkgver=0.1.4
+pkgver=0.1.5
 pkgrel=1
 pkgdesc="Build, preview and apply complete KDE Plasma 6 themes from one TOML spec, with AI-assisted design and icon sets"
 arch=('any')
@@ -16,7 +16,7 @@ optdepends=('claude-code: AI design with your Claude Code login (default AI prov
             'papirus-icon-theme: a good base for generated icon sets'
             'kvantum: apply generated app styles ([widgets] generate)')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('74471459f55b23d30dec28030d3bb2efccbe532198dae2336a8281ef1aec17de')
+sha256sums=('SKIP')  # replaced with the release tarball's checksum when published to the AUR
 
 build() {
   cd "$pkgname-$pkgver"
