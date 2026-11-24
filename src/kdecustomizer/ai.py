@@ -75,7 +75,11 @@ color scheme, Plasma style, Konsole scheme, global theme package, panel layout a
   - Light vs dark is inferred from `background` luminance.
 - `[plasma] generate = true` builds a Plasma style recolored from the palette (recommended — panels and
   popups then match apps). `blur` = translucent blurred panels/popups; `adaptive_transparency` = panels
-  go opaque when a window is maximized. With `generate = false`, `plasma_style` names an installed style.
+  go opaque when a window is maximized. Shape (generated style only): `radius` = corner radius in px of
+  floating panels/popups/tooltips (0..32; 6 = Breeze, 0 = square, 12-16 = soft/modern), `opacity` = fill
+  opacity 0.3..1.0 (0.85 = Breeze; lower looks glassier with blur, 1.0 = solid), `outline` = thin
+  text-colored edge around panels and popups (good for flat/high-contrast designs).
+  With `generate = false`, `plasma_style` names an installed style.
 - `icons`, `cursors`, `plasma_style`, `widget_style`: must be INSTALLED names (list below).
 - `splash`: keep "org.kde.Breeze" unless asked.
 - `[decoration]` window title-bar buttons: `buttons_left` / `buttons_right` are strings of codes:

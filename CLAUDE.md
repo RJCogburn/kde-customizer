@@ -62,17 +62,20 @@ tests (it bills); use a local fake server on `--base-url` / `ANTHROPIC_BASE_URL`
 ## Plasma style (`[plasma] generate = true`)
 `generators/plasmastyle.py` → `build/<Slug>/plasma/<Slug>/` = `metadata.json` + `colors` + `plasmarc`, **no SVGs** — same
 trick as stock Breeze Dark: missing SVGs fall back to `default`, whose `ColorScheme-*` classes read the theme's `colors`.
-`plasmarc` carries Blur/Contrast/AdaptiveTransparency hints. `install.sh` copies it to `$DATA/plasma/desktoptheme/`
+`plasmarc` carries Blur/Contrast/AdaptiveTransparency hints.
+Shapes: when `[plasma] radius/opacity/outline` differ from Breeze (6 / 0.85 / false), `plasmastyle.svgs()` also
+writes FrameSvg SVGs (`dialogs/background`, `widgets/{panel-background,tooltip,background}`, in base,
+`translucent/` and `solid/`): nine frame pieces + `hint-*-margin` + `mask-*` + `shadow-*` (+ panel `thick-*`).
+FrameSvg only reads each element's bounding size, so pieces sit side by side on the canvas with no transforms.
+Check shape changes by tiling the pieces with `QSvgRenderer.render(p, id, rect)` offscreen. `install.sh` copies it to `$DATA/plasma/desktoptheme/`
 and deletes `~/.cache/plasma_theme_<Slug>*` so re-installs pick up new colors. `Theme.plasma_style_name` is what LnF sets.
 
 ## Roadmap (not built yet)
-1. **Plasma style shapes** — ship our own SVGs (corner radius, panel outline/opacity) on top of the colors-only style.
-2. **Aurorae window decoration** — SVG titlebar/buttons from palette.
-3. **Kvantum theme** — `.kvconfig` + `.svg`; set `widget_style = "kvantum"`, write `~/.config/Kvantum/kvantum.kvconfig`.
-4. **Icons** — recolor an existing icon theme (folder colors from accent) into a new inherited theme.
-5. **Cursors, SDDM, splash** — SDDM needs root (pkexec); splash = QML package in the LnF.
-6. **Snapshot** — `kdec snapshot` to read the current desktop config into a spec.
-7. GUI: tweaks editor; preview of the Kickoff menu / dialogs.
+1. **Aurorae window decoration** — SVG titlebar/buttons from palette.
+2. **Kvantum theme** — `.kvconfig` + `.svg`; set `widget_style = "kvantum"`, write `~/.config/Kvantum/kvantum.kvconfig`.
+3. **Cursors, SDDM, splash** — SDDM needs root (pkexec); splash = QML package in the LnF.
+4. **Snapshot** — `kdec snapshot` to read the current desktop config into a spec.
+5. GUI: tweaks editor; preview of the Kickoff menu / dialogs.
 
 ## Packaging / releases
 `packaging/appimage/build.sh` (python-appimage -> `trim-runtime.sh` -> AppImage; leaves `build/appdir`) then

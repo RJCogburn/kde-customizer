@@ -87,6 +87,9 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
         (ps / "metadata.json").write_text(plasmastyle.metadata(theme))
         (ps / "colors").write_text(plasmastyle.colors(theme))
         (ps / "plasmarc").write_text(plasmastyle.plasmarc(theme))
+        for rel, text in plasmastyle.svgs(theme).items():
+            (ps / rel).parent.mkdir(parents=True, exist_ok=True)
+            (ps / rel).write_text(text)
 
     if theme.konsole:
         (out / "konsole").mkdir()

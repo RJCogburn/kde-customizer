@@ -332,9 +332,20 @@ class Main(QMainWindow):
             self.plasma[key] = QCheckBox(label)
             self.plasma[key].toggled.connect(self.changed)
             f.addRow(self.plasma[key])
+        self.p_radius = QSpinBox(minimum=0, maximum=32, suffix=" px",
+                                 toolTip="Corner radius of floating panels, popups and tooltips")
+        self.p_opacity = QSpinBox(minimum=30, maximum=100, suffix=" %",
+                                  toolTip="Fill opacity of panels and popups (Breeze: 85 %)")
+        for w in (self.p_radius, self.p_opacity):
+            w.valueChanged.connect(self.changed)
+        f.addRow("Corner radius", self.p_radius)
+        f.addRow("Opacity", self.p_opacity)
+        self.plasma["outline"] = QCheckBox("Outline panels and popups")
+        self.plasma["outline"].toggled.connect(self.changed)
+        f.addRow(self.plasma["outline"])
         self.text["plasma_style"] = combo(self.installed["plasma_style"])
         f.addRow("Installed style", self.text["plasma_style"])
-        self.plasma["generate"].toggled.connect(lambda on: self.text["plasma_style"].setEnabled(not on))
+        self.plasma["generate"].toggled.connect(self._plasma_generate_toggled)
 
         f = self._group("Look", v)
         for attr, label in [("icons", "Icons"), ("cursors", "Cursors"), ("widget_style", "App style")]:
@@ -511,7 +522,9 @@ class Main(QMainWindow):
             cf.set(getattr(t.palette, k))
         for k, c in self.plasma.items():
             c.setChecked(getattr(t.plasma, k))
-        self.text["plasma_style"].setEnabled(not t.plasma.generate)
+        self.p_radius.setValue(t.plasma.radius)
+        self.p_opacity.setValue(round(t.plasma.opacity * 100))
+        self._plasma_generate_toggled(t.plasma.generate)
         self.konsole.setChecked(t.konsole)
         for k, w in self.deco.items():
             w.setText(getattr(t.decoration, k))
@@ -522,6 +535,12 @@ class Main(QMainWindow):
         self.text["icons"].setEnabled(not t.iconset.generate)
         self._loading = False
         self._after_change()
+
+    def _plasma_generate_toggled(self, on: bool) -> None:
+        """Shape options only exist for the generated style; the installed one is used otherwise."""
+        self.text["plasma_style"].setEnabled(not on)
+        for w in (self.p_radius, self.p_opacity, self.plasma["outline"]):
+            w.setEnabled(on)
 
     def from_form(self) -> spec.Theme:
         t = self.theme
@@ -536,6 +555,8 @@ class Main(QMainWindow):
                 pass  # keep last valid color while the user is mid-typing
         for k, c in self.plasma.items():
             setattr(t.plasma, k, c.isChecked())
+        t.plasma.radius = self.p_radius.value()
+        t.plasma.opacity = self.p_opacity.value() / 100
         t.konsole = self.konsole.isChecked()
         for k, w in self.deco.items():
             setattr(t.decoration, k, w.text().strip())

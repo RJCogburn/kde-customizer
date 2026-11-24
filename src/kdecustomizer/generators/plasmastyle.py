@@ -1,9 +1,15 @@
 """Plasma style (desktop theme) — goes to ~/.local/share/plasma/desktoptheme/<Slug>/.
 
-Like Breeze Dark, this ships no SVGs: Plasma falls back to the "default" (Breeze) SVGs for every
-missing file, and those SVGs take their colors from ColorScheme-* classes, which a `colors` file in
-the theme overrides. So a palette-matched style is just metadata + colors + plasmarc.
-Custom shapes (corner radius, panel outline) would need real SVGs here — not done yet.
+Like Breeze Dark, the base of the style ships no SVGs: Plasma falls back to the "default" (Breeze) SVGs
+for every missing file, and those SVGs take their colors from ColorScheme-* classes, which a `colors`
+file in the theme overrides. So a palette-matched style is just metadata + colors + plasmarc.
+
+When `[plasma]` asks for a shape Breeze doesn't have (radius / opacity / outline), `svgs()` adds our
+own frame SVGs for the panel, popups, tooltips and desktop widgets. They are KSvg FrameSvg files:
+nine frame pieces (`topleft` … `center`), `hint-*-margin` content margins, `mask-*` (blur region) and
+`shadow-*` (the shadow KWin draws around popups and floating panels). Only the pieces' bounding sizes
+matter to FrameSvg, so each element is drawn at its own spot on the canvas, without transforms.
+Colors stay ColorScheme-* classes, so the `colors` file still drives them.
 """
 from __future__ import annotations
 
@@ -11,6 +17,12 @@ import json
 
 from ..spec import Theme
 from . import colors as color_scheme
+
+TILE = 32       # side of the stretched edge/center pieces
+SHADOW = 12     # how far the shadow reaches past the frame edge
+SHADOW_ALPHA = 0.28
+# Breeze's shadow falloff: (position from the frame edge outwards, share of SHADOW_ALPHA)
+_FALLOFF = [(0, 1), (1 / 3, 0.5), (0.5, 0.25), (7 / 12, 0.125), (1, 0)]
 
 
 def metadata(theme: Theme) -> str:
@@ -44,3 +56,195 @@ def plasmarc(theme: Theme) -> str:
         "[ContrastEffect]", f"enabled={b(p.blur)}",
         "contrast=0.2", "intensity=1.0", "saturation=1.7", "",
     ])
+
+
+# --- frame SVGs ---------------------------------------------------------------
+
+def _n(v: float) -> str:
+    return f"{v:.3f}".rstrip("0").rstrip(".")
+
+
+class _Svg:
+    def __init__(self) -> None:
+        self.defs: list[str] = []
+        self.body: list[str] = []
+        self._grad = 0
+
+    def el(self, id_: str, *shapes: str) -> None:
+        self.body.append(f'<g id="{id_}">{"".join(shapes)}</g>')
+
+    def gradient(self, kind: str, attrs: str, stops: list[tuple[float, float]]) -> str:
+        self._grad += 1
+        gid = f"g{self._grad}"
+        s = "".join(f'<stop offset="{_n(o)}" stop-color="#000000" stop-opacity="{_n(a)}"/>' for o, a in stops)
+        self.defs.append(f'<{kind}Gradient id="{gid}" gradientUnits="userSpaceOnUse" {attrs}>{s}</{kind}Gradient>')
+        return f"url(#{gid})"
+
+    def render(self, width: float, height: float) -> str:
+        return (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{_n(width)}" height="{_n(height)}" '
+            f'viewBox="0 0 {_n(width)} {_n(height)}">\n'
+            '<defs><style type="text/css" id="current-color-scheme">'
+            ".ColorScheme-Text{color:#232629;}.ColorScheme-Background{color:#eff0f1;}</style>\n"
+            + "\n".join(self.defs) + "\n</defs>\n" + "\n".join(self.body) + "\n</svg>\n"
+        )
+
+
+def _rect(x: float, y: float, w: float, h: float, style: str) -> str:
+    return f'<rect x="{_n(x)}" y="{_n(y)}" width="{_n(w)}" height="{_n(h)}" {style}/>'
+
+
+def _path(d: str, style: str) -> str:
+    return f'<path d="{d}" {style}/>'
+
+
+def _corner_d(x: float, y: float, b: float, r: float, corner: str, inset: float = 0) -> str:
+    """Area of a b x b corner piece at (x, y) that lies inside the rounded frame (shrunk by `inset`)."""
+    r = max(r - inset, 0)
+    # Work in a local frame where the corner is top-left, then mirror.
+    fx = corner.endswith("right")
+    fy = corner.startswith("bottom")
+    X = lambda u: x + (b - u if fx else u)  # noqa: E731
+    Y = lambda v: y + (b - v if fy else v)  # noqa: E731
+    sweep = 1 if fx == fy else 0
+    i = inset
+    if r <= 0:
+        return f"M{_n(X(i))},{_n(Y(b))} V{_n(Y(i))} H{_n(X(b))} V{_n(Y(b))} Z"
+    return (f"M{_n(X(i))},{_n(Y(b))} V{_n(Y(i + r))} "
+            f"A{_n(r)},{_n(r)} 0 0 {sweep} {_n(X(i + r))},{_n(Y(i))} "
+            f"H{_n(X(b))} V{_n(Y(b))} Z")
+
+
+_CORNERS = ("topleft", "topright", "bottomleft", "bottomright")
+_SIDES = ("top", "bottom", "left", "right")
+
+
+def _frame(svg: _Svg, ox: float, oy: float, b: float, r: float, prefix: str, fill: str,
+           outline: str | None) -> None:
+    """Nine pieces of a frame laid out as one rounded rectangle at (ox, oy)."""
+    T = TILE
+    pos = {
+        "topleft": (ox, oy), "top": (ox + b, oy), "topright": (ox + b + T, oy),
+        "left": (ox, oy + b), "center": (ox + b, oy + b), "right": (ox + b + T, oy + b),
+        "bottomleft": (ox, oy + b + T), "bottom": (ox + b, oy + b + T), "bottomright": (ox + b + T, oy + b + T),
+    }
+    size = {"top": (T, b), "bottom": (T, b), "left": (b, T), "right": (b, T), "center": (T, T)}
+    for name, (x, y) in pos.items():
+        if name in _CORNERS:
+            shapes = [_path(_corner_d(x, y, b, r, name), fill)]
+            if outline:
+                ring = _corner_d(x, y, b, r, name) + " " + _corner_d(x, y, b, r, name, inset=1)
+                shapes.append(_path(ring, outline.replace('style="', 'style="fill-rule:evenodd;')))
+        else:
+            w, h = size[name]
+            shapes = [_rect(x, y, w, h, fill)]
+            if outline and name != "center":
+                ex, ey, ew, eh = {
+                    "top": (x, y, w, 1), "bottom": (x, y + h - 1, w, 1),
+                    "left": (x, y, 1, h), "right": (x + w - 1, y, 1, h),
+                }[name]
+                shapes.append(_rect(ex, ey, ew, eh, outline))
+        svg.el(prefix + name, *shapes)
+
+
+def _shadow(svg: _Svg, ox: float, oy: float, b: float, r: float) -> None:
+    """`shadow-*` pieces: each reaches SHADOW px past the frame plus the frame's own border width
+    (left transparent, it sits under the frame)."""
+    S, T = SHADOW, TILE
+    k = S + b
+    ghost = 'fill="#000000" fill-opacity="0.004"'  # invisible but keeps the bounding box
+    stops = lambda start: [(start + (1 - start) * o, SHADOW_ALPHA * a) for o, a in _FALLOFF]  # noqa: E731
+    # Corners: radial falloff around the center of the frame's rounding, frame area cut out.
+    for name in _CORNERS:
+        fx, fy = name.endswith("right"), name.startswith("bottom")
+        x = ox + (b + T if fx else -S)
+        y = oy + (b + T if fy else -S)
+        # Frame corner inside this piece sits at the inner side.
+        fcx = x + (0 if fx else S)
+        fcy = y + (0 if fy else S)
+        cx = fcx + (b - r if fx else r)
+        cy = fcy + (b - r if fy else r)
+        R = r + S
+        start = r / R
+        grad = svg.gradient("radial", f'cx="{_n(cx)}" cy="{_n(cy)}" r="{_n(R)}"',
+                            [(0, 0), (start, 0)] + stops(start))
+        outer = f"M{_n(x)},{_n(y)} h{_n(k)} v{_n(k)} h{_n(-k)} Z"
+        svg.el("shadow-" + name, _rect(x, y, k, k, ghost),
+               _path(outer + " " + _corner_d(fcx, fcy, b, r, name), f'fill="{grad}" fill-rule="evenodd"'))
+    # Sides: linear falloff over the outer S px.
+    for name in _SIDES:
+        if name in ("top", "bottom"):
+            x = ox + b
+            y = oy - S if name == "top" else oy + b + T
+            edge = y + S if name == "top" else y + b
+            far = y if name == "top" else y + k
+            grad = svg.gradient("linear", f'x1="0" y1="{_n(edge)}" x2="0" y2="{_n(far)}"', stops(0))
+            sy = y if name == "top" else y + b
+            svg.el("shadow-" + name, _rect(x, y, T, k, ghost), _rect(x, sy, T, S, f'fill="{grad}"'))
+        else:
+            y = oy + b
+            x = ox - S if name == "left" else ox + b + T
+            edge = x + S if name == "left" else x + b
+            far = x if name == "left" else x + k
+            grad = svg.gradient("linear", f'x1="{_n(edge)}" y1="0" x2="{_n(far)}" y2="0"', stops(0))
+            sx = x if name == "left" else x + b
+            svg.el("shadow-" + name, _rect(x, y, k, T, ghost), _rect(sx, y, S, T, f'fill="{grad}"'))
+    svg.el("shadow-center", _rect(ox + b, oy + b, T, T, ghost))
+
+
+def _hints(svg: _Svg, x: float, y: float, prefix: str, margin: float) -> None:
+    style = 'fill="#ff00ff"'
+    svg.el(f"{prefix}hint-top-margin", _rect(x, y, 4, margin, style))
+    svg.el(f"{prefix}hint-bottom-margin", _rect(x + 6, y, 4, margin, style))
+    svg.el(f"{prefix}hint-left-margin", _rect(x + 12, y, margin, 4, style))
+    svg.el(f"{prefix}hint-right-margin", _rect(x + 12, y + 6, margin, 4, style))
+
+
+def frame_svg(*, radius: int, opacity: float, outline: bool, margin: float,
+              shadow: bool = True, mask: bool = True, thick_margin: float | None = None) -> str:
+    """One FrameSvg file. `thick_margin` adds the panel's `thick-` margins (used by floating panels)."""
+    r = float(radius)
+    b = max(r, 2.0)
+    span = 2 * b + TILE
+    pad = SHADOW + 4
+    svg = _Svg()
+    fill = f'class="ColorScheme-Background" style="fill:currentColor;fill-opacity:{_n(opacity)}"'
+    edge = 'class="ColorScheme-Text" style="fill:currentColor;fill-opacity:0.18"' if outline else None
+    col = pad
+    _frame(svg, col, pad, b, r, "", fill, edge)
+    _hints(svg, col, pad + span + 4, "", margin)
+    col += span + pad
+    if mask:
+        _frame(svg, col, pad, b, r, "mask-", 'fill="#000000"', None)
+        col += span + pad
+    if shadow:
+        _shadow(svg, col + SHADOW, pad, b, r)
+        _hints(svg, col, pad + span + SHADOW + 4, "shadow-", SHADOW)
+        col += span + 2 * SHADOW + pad
+    if thick_margin is not None:
+        svg.el("thick-center", _rect(col, pad, TILE, TILE, fill))
+        _hints(svg, col, pad + TILE + 4, "thick-", thick_margin)
+        col += TILE + max(thick_margin, 12) + pad
+    return svg.render(col, pad + span + 2 * SHADOW + 4 + 2 * max(margin, SHADOW) + 16)
+
+
+def svgs(theme: Theme) -> dict[str, str]:
+    """Relative path in the style -> SVG text. Empty when Breeze's own SVGs already match."""
+    p = theme.plasma
+    if not p.custom_shapes:
+        return {}
+    r = p.radius
+    margin = max(4, r // 2 + 1)
+    thick = max(8, round(r * 0.6) + 2)
+    out: dict[str, str] = {}
+    # base = composited, translucent = composited + blur, solid = adaptive transparency (maximized window)
+    for variant, opacity in (("", p.opacity), ("translucent/", p.opacity), ("solid/", 1.0)):
+        kw = dict(radius=r, opacity=opacity, outline=p.outline)
+        out[f"{variant}dialogs/background.svg"] = frame_svg(margin=margin, **kw)
+        out[f"{variant}widgets/tooltip.svg"] = frame_svg(margin=margin, **kw)
+        out[f"{variant}widgets/panel-background.svg"] = frame_svg(margin=margin, thick_margin=thick, **kw)
+    # Desktop widgets (plasmoids on the wallpaper) — Breeze has no variants for this one except solid/translucent.
+    out["widgets/background.svg"] = frame_svg(margin=max(8, margin + 4), radius=r, opacity=p.opacity,
+                                              outline=p.outline, mask=False)
+    return out

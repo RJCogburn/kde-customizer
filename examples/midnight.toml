@@ -22,6 +22,9 @@ negative = "#f87171"
 generate = true
 blur = true
 adaptive_transparency = true
+radius = 12        # corner radius of floating panels/popups/tooltips (Breeze: 6)
+opacity = 0.8      # panel/popup fill opacity (Breeze: 0.85)
+outline = false    # thin text-colored edge around panels and popups
 
 [decoration]
 library = "org.kde.breeze"

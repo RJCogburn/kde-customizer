@@ -191,16 +191,24 @@ class Preview(QWidget):
                 r.setRight(min(r.right(), pr.left()))
         return r
 
+    def _plasma_radius(self) -> float:
+        ps = self.theme.plasma
+        return ps.radius if ps.generate else 8
+
     def _plasma_bg(self, p: QPainter, rect: QRectF, radius: float) -> None:
-        """Plasma surface: Window color, translucent when the style blurs."""
-        blur = self.theme.plasma.blur
-        p.setPen(QPen(self.c("Colors:Window", "ForegroundNormal", 0.12), 1))
-        p.setBrush(self.c("Colors:Window", "BackgroundNormal", 0.82 if blur else 1.0))
+        """Plasma surface: Window color, translucent when the style blurs; shape from [plasma]."""
+        ps = self.theme.plasma
+        if ps.generate:
+            alpha, edge = ps.opacity, (0.18 if ps.outline else 0.0)
+        else:
+            alpha, edge = (0.82 if ps.blur else 1.0), 0.12
+        p.setPen(QPen(self.c("Colors:Window", "ForegroundNormal", edge), 1) if edge else Qt.NoPen)
+        p.setBrush(self.c("Colors:Window", "BackgroundNormal", alpha))
         p.drawRoundedRect(rect, radius, radius)
 
     def _panel(self, p: QPainter, panel: Panel) -> None:
         rect, vertical = self._panel_rect(panel)
-        self._plasma_bg(p, rect, 8 if panel.floating else 0)
+        self._plasma_bg(p, rect, self._plasma_radius() if panel.floating else 0)
         thick = rect.width() if vertical else rect.height()
         icon = int(thick * 0.62)
         cell = thick
@@ -503,8 +511,8 @@ class Preview(QWidget):
 
     def _notification(self, p: QPainter, area: QRectF) -> None:
         rect = QRectF(area.right() - 340, area.bottom() - 100, 324, 84)
-        self._shadow(p, rect, 8, 0.5)
-        self._plasma_bg(p, rect, 8)
+        self._shadow(p, rect, self._plasma_radius(), 0.5)
+        self._plasma_bg(p, rect, self._plasma_radius())
         self._icon(p, ("preferences-desktop-theme-global", "preferences-desktop-theme", "preferences-desktop"),
                    QPointF(rect.x() + 32, rect.center().y()), 36)
         p.setPen(self.c("Colors:Window", "ForegroundNormal"))

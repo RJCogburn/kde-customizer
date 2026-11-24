@@ -59,6 +59,16 @@ class PlasmaStyle:
     generate: bool = False            # build a palette-matched Plasma style; overrides `plasma_style`
     blur: bool = True                 # blur + contrast behind translucent panels/popups
     adaptive_transparency: bool = True  # panels go opaque when a window is maximized
+    radius: int = 6                   # corner radius (px) of floating panels, popups, tooltips, desktop widgets
+    opacity: float = 0.85             # fill opacity of panels/popups (1.0 = solid); 0.85 = Breeze
+    outline: bool = False             # thin edge in the text color around panels and popups
+
+    BREEZE_SHAPE = (6, 0.85, False)   # Breeze's own SVGs already look like this
+
+    @property
+    def custom_shapes(self) -> bool:
+        """True when the style needs its own SVGs instead of falling back to Breeze's."""
+        return (self.radius, round(self.opacity, 3), self.outline) != self.BREEZE_SHAPE
 
 
 @dataclass
@@ -144,7 +154,13 @@ def from_dict(data: dict[str, Any]) -> Theme:
     for key, fn in sub.items():
         if key in data:
             data[key] = fn(data[key])
-    return _build(Theme, data)
+    theme = _build(Theme, data)
+    p = theme.plasma
+    if not 0 <= p.radius <= 32:
+        raise ValueError(f"[plasma] radius must be 0..32, got {p.radius}")
+    if not 0.3 <= p.opacity <= 1.0:
+        raise ValueError(f"[plasma] opacity must be 0.3..1.0, got {p.opacity}")
+    return theme
 
 
 def load(path: str | Path) -> Theme:

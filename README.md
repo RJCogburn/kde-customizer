@@ -8,7 +8,8 @@ click. You can also describe a theme in plain words and let an AI design it.
 From about seven palette colors, one theme spec generates:
 
 - a **color scheme** for all apps
-- a **Plasma style** (panels, popups, widgets) recolored to match, with blur and adaptive transparency
+- a **Plasma style** (panels, popups, widgets) recolored to match, with your own corner radius, opacity and
+  outline, blur and adaptive transparency
 - a **global theme** package (icons, cursors, app style, window decoration, splash)
 - a **panel layout**: position, size, floating or dock-style, and widget order
 - a matching **Konsole** color scheme and profile
@@ -155,6 +156,7 @@ accent = "#8b7cf6"
 
 [plasma]
 generate = true        # palette-matched Plasma style
+radius = 12            # rounder floating panels and popups (Breeze: 6)
 
 [[panels]]
 location = "bottom"
