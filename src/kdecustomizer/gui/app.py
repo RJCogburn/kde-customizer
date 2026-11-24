@@ -370,8 +370,38 @@ class Main(QMainWindow):
             w.textChanged.connect(self.changed)
             self.deco[attr] = w
             f.addRow(label, w)
+        self.d_generate = QCheckBox("Generate title bars from palette")
+        self.d_generate.setToolTip("Build an Aurorae window decoration in the theme's colors "
+                                   "(replaces Library/Theme above)")
+        self.d_generate.toggled.connect(self.changed)
+        self.d_generate.toggled.connect(self._deco_generate_toggled)
+        f.addRow(self.d_generate)
+        self.d_radius = QSpinBox(minimum=0, maximum=16, suffix=" px", toolTip="Top corner radius")
+        self.d_height = QSpinBox(minimum=20, maximum=60, suffix=" px", toolTip="Title bar height")
+        self.d_border = QSpinBox(minimum=0, maximum=12, suffix=" px", toolTip="Side and bottom border (0 = none)")
+        self.d_align = QComboBox()
+        self.d_align.addItems(list(spec.Decoration.TITLE_ALIGNS))
+        self.d_style = QComboBox()
+        self.d_style.addItems(list(spec.Decoration.BUTTON_STYLES))
+        self.d_style.setToolTip("glyph: symbols with a round hover · dots: colored circles "
+                                "(close = negative, minimize = neutral, maximize = positive)")
+        for w in (self.d_radius, self.d_height, self.d_border):
+            w.valueChanged.connect(self.changed)
+        for w in (self.d_align, self.d_style):
+            w.currentTextChanged.connect(self.changed)
+        f.addRow("Corner radius", self.d_radius)
+        f.addRow("Title height", self.d_height)
+        f.addRow("Border", self.d_border)
+        f.addRow("Title align", self.d_align)
+        f.addRow("Buttons", self.d_style)
         v.addStretch()
         return scroll(page)
+
+    def _deco_generate_toggled(self, on: bool) -> None:
+        for w in (self.deco["library"], self.deco["theme"]):
+            w.setEnabled(not on)
+        for w in (self.d_radius, self.d_height, self.d_border, self.d_align, self.d_style):
+            w.setEnabled(on)
 
     def _panels_tab(self) -> QWidget:
         page, v = self._form_page()
@@ -528,6 +558,14 @@ class Main(QMainWindow):
         self.konsole.setChecked(t.konsole)
         for k, w in self.deco.items():
             w.setText(getattr(t.decoration, k))
+        d = t.decoration
+        self.d_generate.setChecked(d.generate)
+        self.d_radius.setValue(d.radius)
+        self.d_height.setValue(d.title_height)
+        self.d_border.setValue(d.border)
+        self.d_align.setCurrentText(d.title_align)
+        self.d_style.setCurrentText(d.button_style)
+        self._deco_generate_toggled(d.generate)
         for k, ff in self.fonts.items():
             ff.edit.setText(getattr(t.fonts, k))
         self._fill_panel_list()
@@ -560,6 +598,13 @@ class Main(QMainWindow):
         t.konsole = self.konsole.isChecked()
         for k, w in self.deco.items():
             setattr(t.decoration, k, w.text().strip())
+        d = t.decoration
+        d.generate = self.d_generate.isChecked()
+        d.title_height = self.d_height.value()
+        d.radius = min(self.d_radius.value(), d.title_height // 2)
+        d.border = self.d_border.value()
+        d.title_align = self.d_align.currentText()
+        d.button_style = self.d_style.currentText()
         for k, ff in self.fonts.items():
             setattr(t.fonts, k, ff.edit.text().strip())
         self.icons_tab.store(t)

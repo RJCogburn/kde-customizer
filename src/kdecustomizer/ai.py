@@ -85,6 +85,11 @@ color scheme, Plasma style, Konsole scheme, global theme package, panel layout a
 - `[decoration]` window title-bar buttons: `buttons_left` / `buttons_right` are strings of codes:
   M menu, S on-all-desktops, H help, F keep-above, B keep-below, I minimize, A maximize, X close,
   _ spacer. macOS-like = left "XIA", right "". Windows-like = left "M", right "IAX".
+  `generate = true` builds title bars in the palette's colors (recommended; then `library`/`theme` are
+  ignored): `radius` 0..16 top corners (8 default), `title_height` 20..60 (30 default; 24-26 compact,
+  34+ roomy), `title_align` left|center|right, `border` 0..12 px side/bottom frame (2 default),
+  `button_style` "glyph" (symbols, round hover; close turns `negative` on hover) or "dots" (colored
+  circles: close = negative, minimize = neutral, maximize = positive — pair with left "XIA").
 - `[fonts]`: "Family,size" e.g. "Inter,10"; "" leaves the user's font unchanged. Only use common fonts.
 - `[[panels]]` (repeat for several): `location` top|bottom|left|right; `height` px (24–80 typical);
   `floating`; `alignment` left|center|right; `length_mode` fill|fit (fit = dock-like);

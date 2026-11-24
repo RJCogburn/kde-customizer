@@ -8,7 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from . import iconset
-from .generators import colors, konsole, layout, lookandfeel, plasmastyle
+from .generators import aurorae, colors, konsole, layout, lookandfeel, plasmastyle
 from .spec import Theme, save
 
 _FONT_KEYS = {  # Fonts field -> (file, group, key)
@@ -31,6 +31,11 @@ def all_tweaks(theme: Theme) -> dict[str, dict[str, dict[str, object]]]:
     d = theme.decoration
     put("kwinrc", "org.kde.kdecoration2", "ButtonsOnLeft", d.buttons_left)
     put("kwinrc", "org.kde.kdecoration2", "ButtonsOnRight", d.buttons_right)
+    if d.generate:
+        # LnF sets these too, but only when the global theme changes; this re-applies on every install.
+        lib, deco = theme.decoration_kwin
+        put("kwinrc", "org.kde.kdecoration2", "library", lib)
+        put("kwinrc", "org.kde.kdecoration2", "theme", deco)
     for field, (f, g, k) in _FONT_KEYS.items():
         val = getattr(theme.fonts, field)
         if val:
@@ -91,6 +96,12 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
             (ps / rel).parent.mkdir(parents=True, exist_ok=True)
             (ps / rel).write_text(text)
 
+    if theme.decoration.generate:
+        deco = out / "aurorae" / theme.decoration_name
+        deco.mkdir(parents=True)
+        for name, text in aurorae.files(theme).items():
+            (deco / name).write_text(text)
+
     if theme.konsole:
         (out / "konsole").mkdir()
         (out / "konsole" / f"{theme.slug}.colorscheme").write_text(konsole.colorscheme(theme))
@@ -146,6 +157,14 @@ def _write_install_script(theme: Theme, out: Path) -> None:
             f'rm -rf "$DATA/icons/{name}"',
             f'cp -r "$DIR/icons/{name}" "$DATA/icons/"',
             'rm -f "${XDG_CACHE_HOME:-$HOME/.cache}"/icon-cache.kcache',
+        ]
+    if theme.decoration.generate:
+        name = theme.decoration_name
+        s += [
+            'echo "==> window decoration"',
+            'mkdir -p "$DATA/aurorae/themes"',
+            f'rm -rf "$DATA/aurorae/themes/{name}"',
+            f'cp -r "$DIR/aurorae/{name}" "$DATA/aurorae/themes/"',
         ]
     if theme.wallpaper:
         s += ['echo "==> wallpaper"', f'mkdir -p "$DATA/wallpapers/{theme.slug}"',

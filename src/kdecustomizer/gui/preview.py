@@ -302,13 +302,40 @@ class Preview(QWidget):
             p.setBrush(QColor(0, 0, 0, int(strength * 9 / i)))
             p.drawRoundedRect(rect.adjusted(-i * 1.6, -i * 1.0, i * 1.6, i * 2.2), radius + i, radius + i)
 
+    def _window_radius(self) -> tuple[float, float]:
+        """(top, bottom) corner radius of app windows: the generated decoration's, else Breeze-like."""
+        d = self.theme.decoration
+        if d.generate:
+            return d.radius, (d.radius if d.border >= d.radius else 0)
+        return 8, 8
+
+    def _window_bg(self, p: QPainter, rect: QRectF, color: QColor) -> None:
+        """Window body with the decoration's top and bottom corner radii."""
+        top, bot = self._window_radius()
+        x0, y0, x1, y1 = rect.left(), rect.top(), rect.right(), rect.bottom()
+        path = QPainterPath()
+        path.moveTo(x0, y0 + top)
+        path.arcTo(QRectF(x0, y0, 2 * top, 2 * top), 180, -90)
+        path.lineTo(x1 - top, y0)
+        path.arcTo(QRectF(x1 - 2 * top, y0, 2 * top, 2 * top), 90, -90)
+        path.lineTo(x1, y1 - bot)
+        path.arcTo(QRectF(x1 - 2 * bot, y1 - 2 * bot, 2 * bot, 2 * bot), 0, -90)
+        path.lineTo(x0 + bot, y1)
+        path.arcTo(QRectF(x0, y1 - 2 * bot, 2 * bot, 2 * bot), 270, -90)
+        path.closeSubpath()
+        p.setPen(Qt.NoPen)
+        p.setBrush(color)
+        p.drawPath(path)
+
     def _titlebar(self, p: QPainter, rect: QRectF, title: str, active: bool) -> QRectF:
-        tb = QRectF(rect.x(), rect.y(), rect.width(), 32)
+        d = self.theme.decoration
+        top_r = self._window_radius()[0]
+        tb = QRectF(rect.x(), rect.y(), rect.width(), d.title_height if d.generate else 32)
         wm = "active" if active else "inactive"
         bg = self.c("WM", f"{wm}Background")
         fg = self.c("WM", f"{wm}Foreground")
         path = QPainterPath()
-        path.addRoundedRect(tb.adjusted(0, 0, 0, 8), 8, 8)
+        path.addRoundedRect(tb.adjusted(0, 0, 0, max(top_r, 1)), top_r, top_r)
         p.save()
         p.setClipRect(tb)
         p.setPen(Qt.NoPen)
@@ -317,8 +344,12 @@ class Preview(QWidget):
         p.restore()
         p.setPen(fg)
         p.setFont(_font(self.theme.fonts.window_title or self.theme.fonts.general, 10, bold=True))
-        p.drawText(tb, Qt.AlignCenter, title)
-        d = self.theme.decoration
+        align = {"left": Qt.AlignLeft, "right": Qt.AlignRight}.get(d.title_align, Qt.AlignHCenter) \
+            if d.generate else Qt.AlignHCenter
+        # keep clear of the button rows when the title isn't centered
+        text_rect = tb.adjusted(18 + 26 * len(d.buttons_left), 0, -18 - 26 * len(d.buttons_right), 0) \
+            if align != Qt.AlignHCenter else tb
+        p.drawText(text_rect, align | Qt.AlignVCenter, title)
         self._buttons(p, d.buttons_left, QPointF(tb.left() + 18, tb.center().y()), 1, fg, active)
         self._buttons(p, d.buttons_right, QPointF(tb.right() - 18, tb.center().y()), -1, fg, active)
         return tb
@@ -326,9 +357,21 @@ class Preview(QWidget):
     def _buttons(self, p, codes: str, start: QPointF, step_dir: int, fg: QColor, active: bool) -> None:
         seq = codes if step_dir == 1 else codes[::-1]
         x = start.x()
+        pal = self.theme.palette
+        dots = self.theme.decoration.generate and self.theme.decoration.button_style == "dots"
         for code in seq:
             c = QPointF(x, start.y())
             r = 8
+            if dots and code != "M":
+                if code == "_":
+                    x += 6 * step_dir
+                    continue
+                col = {"X": pal.negative, "I": pal.neutral, "A": pal.positive}.get(code, pal.accent)
+                p.setPen(Qt.NoPen)
+                p.setBrush(_q(col) if active else self.c("WM", "inactiveForeground", 0.45))
+                p.drawEllipse(c, 7, 7)
+                x += 22 * step_dir
+                continue
             if code == "X" and active:
                 p.setPen(Qt.NoPen)
                 p.setBrush(_q(self.theme.palette.negative))
@@ -367,10 +410,8 @@ class Preview(QWidget):
 
     def _app_window(self, p: QPainter, rect: QRectF) -> None:
         s = self.c
-        self._shadow(p, rect, 8, 1.0)
-        p.setPen(Qt.NoPen)
-        p.setBrush(s("Colors:Window", "BackgroundNormal"))
-        p.drawRoundedRect(rect, 8, 8)
+        self._shadow(p, rect, self._window_radius()[0], 1.0)
+        self._window_bg(p, rect, s("Colors:Window", "BackgroundNormal"))
         tb = self._titlebar(p, rect, "Files — Home", True)
         font = _font(self.theme.fonts.general, 10)
         small = _font(self.theme.fonts.small or self.theme.fonts.general, 8.5)
@@ -472,10 +513,8 @@ class Preview(QWidget):
         if not self.theme.konsole:
             return
         a = self.ansi
-        self._shadow(p, rect, 8, 0.6)
-        p.setPen(Qt.NoPen)
-        p.setBrush(_q(a["Background"]))
-        p.drawRoundedRect(rect, 8, 8)
+        self._shadow(p, rect, self._window_radius()[0], 0.6)
+        self._window_bg(p, rect, _q(a["Background"]))
         tb = self._titlebar(p, rect, "Konsole", False)
         font = _font(self.theme.fonts.fixed or "Monospace", 10)
         font.setStyleHint(QFont.Monospace)

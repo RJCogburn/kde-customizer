@@ -27,10 +27,14 @@ opacity = 0.8      # panel/popup fill opacity (Breeze: 0.85)
 outline = false    # thin text-colored edge around panels and popups
 
 [decoration]
-library = "org.kde.breeze"
-theme = "Breeze"
 buttons_left = "M"
 buttons_right = "IAX"
+generate = true          # title bars in the palette's colors (overrides library/theme)
+radius = 10              # top corner radius
+title_height = 30
+title_align = "center"   # left | center | right
+border = 2               # side/bottom frame; 0 = borderless
+button_style = "glyph"   # glyph | dots (colored circles; pair with buttons_left = "XIA")
 
 [fonts]
 fixed = "JetBrains Mono,10"

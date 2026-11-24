@@ -36,6 +36,15 @@ bound methods of a widget (lambdas would run on the worker thread). AI provider 
 (`~/.config/kdecustomizer/kdec-gui.conf`).
 Offscreen screenshots for checking UI changes: `QT_QPA_PLATFORM=offscreen`, `w.grab().save(...)`.
 
+## Window decoration (`[decoration] generate = true`)
+`generators/aurorae.py` → `build/<Slug>/aurorae/<Slug>-Decoration/` (installed to `$DATA/aurorae/themes/`):
+`decoration.svg` (FrameSvg, prefixes `decoration-` / `decoration-inactive-`), one SVG per button with
+`active|hover|pressed|inactive|deactivated-center`, `<name>rc` (sizes, title colors), metadata. The frame
+covers shadow padding + title bar + borders; pieces may reach under the client window, only their bounding sizes
+matter, and the stretched middle must be constant. KWin name: `__aurorae__svg__<Slug>-Decoration`
+(`Theme.decoration_kwin`). Colors are plain hex from `colors.scheme()["WM"]` (Aurorae isn't recolored).
+The engine's QML is in `/usr/share/kwin/aurorae/` — read it for element names and layout.
+
 ## What Look-and-Feel can and can't do
 `plasma-apply-lookandfeel` only applies the keys in `contents/defaults` (colors, widget style, icons, plasma style,
 cursors, decoration, splash) and the layout JS with `--resetLayout`. Anything else (fonts, decoration buttons,
@@ -71,11 +80,10 @@ Check shape changes by tiling the pieces with `QSvgRenderer.render(p, id, rect)`
 and deletes `~/.cache/plasma_theme_<Slug>*` so re-installs pick up new colors. `Theme.plasma_style_name` is what LnF sets.
 
 ## Roadmap (not built yet)
-1. **Aurorae window decoration** — SVG titlebar/buttons from palette.
-2. **Kvantum theme** — `.kvconfig` + `.svg`; set `widget_style = "kvantum"`, write `~/.config/Kvantum/kvantum.kvconfig`.
-3. **Cursors, SDDM, splash** — SDDM needs root (pkexec); splash = QML package in the LnF.
-4. **Snapshot** — `kdec snapshot` to read the current desktop config into a spec.
-5. GUI: tweaks editor; preview of the Kickoff menu / dialogs.
+1. **Kvantum theme** — `.kvconfig` + `.svg`; set `widget_style = "kvantum"`, write `~/.config/Kvantum/kvantum.kvconfig`.
+2. **Cursors, SDDM, splash** — SDDM needs root (pkexec); splash = QML package in the LnF.
+3. **Snapshot** — `kdec snapshot` to read the current desktop config into a spec.
+4. GUI: tweaks editor; preview of the Kickoff menu / dialogs.
 
 ## Packaging / releases
 `packaging/appimage/build.sh` (python-appimage -> `trim-runtime.sh` -> AppImage; leaves `build/appdir`) then

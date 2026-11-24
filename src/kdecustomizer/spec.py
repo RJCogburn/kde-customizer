@@ -48,10 +48,19 @@ class Panel:
 
 @dataclass
 class Decoration:
-    library: str = "org.kde.breeze"
+    library: str = "org.kde.breeze"   # installed decoration (ignored if generate)
     theme: str = "Breeze"
     buttons_left: str = "M"           # KWin button codes: M menu, S on-all-desktops, H help,
     buttons_right: str = "IAX"        # I minimize, A maximize, X close, F keep-above, B keep-below
+    generate: bool = False            # build an Aurorae title bar from the palette; overrides library/theme
+    radius: int = 8                   # top corner radius (px) of generated title bars
+    title_height: int = 30            # title bar height (px)
+    title_align: str = "center"       # left | center | right
+    border: int = 2                   # side/bottom border (px); 0 = borderless
+    button_style: str = "glyph"       # glyph (symbols, round hover) | dots (colored circles)
+
+    TITLE_ALIGNS = ("left", "center", "right")
+    BUTTON_STYLES = ("glyph", "dots")
 
 
 @dataclass
@@ -128,6 +137,18 @@ class Theme:
         return self.slug if self.plasma.generate else self.plasma_style
 
     @property
+    def decoration_name(self) -> str:
+        """Folder name of the generated Aurorae theme."""
+        return f"{self.slug}-Decoration"
+
+    @property
+    def decoration_kwin(self) -> tuple[str, str]:
+        """(library, theme) as KWin's kwinrc [org.kde.kdecoration2] wants them."""
+        if self.decoration.generate:
+            return "org.kde.kwin.aurorae", f"__aurorae__svg__{self.decoration_name}"
+        return self.decoration.library, self.decoration.theme
+
+    @property
     def icons_name(self) -> str:
         """The icon theme actually applied: our generated one, or the named installed one."""
         return f"{self.slug}-Icons" if self.iconset.generate else self.icons
@@ -160,6 +181,17 @@ def from_dict(data: dict[str, Any]) -> Theme:
         raise ValueError(f"[plasma] radius must be 0..32, got {p.radius}")
     if not 0.3 <= p.opacity <= 1.0:
         raise ValueError(f"[plasma] opacity must be 0.3..1.0, got {p.opacity}")
+    d = theme.decoration
+    if d.title_align not in d.TITLE_ALIGNS:
+        raise ValueError(f"[decoration] title_align must be one of {', '.join(d.TITLE_ALIGNS)}")
+    if d.button_style not in d.BUTTON_STYLES:
+        raise ValueError(f"[decoration] button_style must be one of {', '.join(d.BUTTON_STYLES)}")
+    if not 20 <= d.title_height <= 60:
+        raise ValueError(f"[decoration] title_height must be 20..60, got {d.title_height}")
+    if not 0 <= d.radius <= min(16, d.title_height // 2):
+        raise ValueError(f"[decoration] radius must be 0..{min(16, d.title_height // 2)}, got {d.radius}")
+    if not 0 <= d.border <= 12:
+        raise ValueError(f"[decoration] border must be 0..12, got {d.border}")
     return theme
 
 

@@ -24,13 +24,13 @@ def metadata(theme: Theme) -> str:
 
 def defaults(theme: Theme) -> str:
     """contents/defaults — the keys plasma-apply-lookandfeel knows how to apply."""
-    d = theme.decoration
+    lib, deco = theme.decoration_kwin
     return "\n".join([
         "[kdeglobals][KDE]", f"widgetStyle={theme.widget_style}", "",
         "[kdeglobals][General]", f"ColorScheme={theme.slug}", "",
         "[kdeglobals][Icons]", f"Theme={theme.icons_name}", "",
         "[plasmarc][Theme]", f"name={theme.plasma_style_name}", "",
         "[kcminputrc][Mouse]", f"cursorTheme={theme.cursors}", "",
-        "[kwinrc][org.kde.kdecoration2]", f"library={d.library}", f"theme={d.theme}", "",
+        "[kwinrc][org.kde.kdecoration2]", f"library={lib}", f"theme={deco}", "",
         "[ksplashrc][KSplash]", f"Theme={theme.splash}", "",
     ])
