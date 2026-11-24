@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import shlex
 import shutil
+import sys
 import tarfile
 from dataclasses import replace
 from pathlib import Path
@@ -58,6 +59,12 @@ def _kwrite(file: str, group: str, key: str, value: object) -> str:
 
 
 def build(theme: Theme, out_root: str | Path = "build") -> Path:
+    original = theme
+    if theme.cursorset.generate and not cursorset.base_available(theme):
+        # e.g. a shared spec built on a machine without the base: fall back to the named installed cursors
+        print(f"warning: [cursorset] base '{theme.cursorset.base}' with SVG cursors is not installed here; "
+              f"using cursors = '{theme.cursors}' instead", file=sys.stderr)
+        theme = replace(theme, cursorset=replace(theme.cursorset, generate=False))
     out = Path(out_root) / theme.slug
     if out.exists():
         shutil.rmtree(out)
@@ -93,9 +100,9 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
         cursorset.build(theme, out / "cursors")
 
     # Ship the editable spec too, with the wallpaper / signature icons pointing at the bundled copies.
-    portable = replace(theme, wallpaper=f"wallpapers/{Path(theme.wallpaper).name}" if theme.wallpaper else "")
+    portable = replace(original, wallpaper=f"wallpapers/{Path(theme.wallpaper).name}" if theme.wallpaper else "")
     if (out / "signature-icons").is_dir():
-        portable.iconset = replace(theme.iconset, signature_dir="signature-icons")
+        portable.iconset = replace(original.iconset, signature_dir="signature-icons")
     save(portable, out / "theme.toml")
     (out / "color-schemes" / f"{theme.slug}.colors").write_text(colors.generate(theme))
 

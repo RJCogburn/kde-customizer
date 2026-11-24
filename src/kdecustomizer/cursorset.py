@@ -35,6 +35,11 @@ def find_dir(name: str) -> Path | None:
     return iconset.find_theme_dir(name)
 
 
+def base_available(theme: Theme) -> bool:
+    d = find_dir(theme.cursorset.base)
+    return bool(d and (d / "cursors_scalable").is_dir())
+
+
 def scalable_themes() -> list[str]:
     """Installed cursor themes with SVG cursors (the ones we can recolor)."""
     from . import system
