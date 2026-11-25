@@ -108,13 +108,14 @@ jobs:
           printf '\n[boot_splash]\ngenerate = true\n' >> /tmp/t.toml
           PYTHONPATH=src python3 -m kdecustomizer.cli build /tmp/t.toml -o /tmp/b | tail -1
           KDEC_BOOT_ROOT=/ bash /tmp/b/Midnight/boot/apply.sh /tmp/b/Midnight
+          plymouth-set-default-theme kdec-midnight      # no -R: no initramfs in a container
           Xvfb :99 -screen 0 1280x800x24 & sleep 2
           export DISPLAY=:99
           mkdir -p shots
           # plymouthd wants a real terminal for its console device: run it on a pty (script); without udev it
           # falls back to the AUTO renderer, which tries X11 first. The log goes where plymouth.debug=stream: says.
           script -qfec "plymouthd --no-daemon --debug --tty=\$(tty) --no-boot-log --graphical-boot \
-            --kernel-command-line='splash plymouth.theme=kdec-midnight plymouth.debug=stream:$PWD/shots/plymouthd.log'" \
+            --kernel-command-line='splash plymouth.splash=kdec-midnight plymouth.debug=stream:$PWD/shots/plymouthd.log'" \
             /dev/null > shots/plymouthd.out 2>&1 &
           sleep 2
           plymouth show-splash || { cat shots/plymouthd.out; tail -60 shots/plymouthd.log || true; exit 1; }
@@ -132,6 +133,9 @@ jobs:
           sleep 1
           grep -iE "script|error" shots/plymouthd.log | grep -iv "no error" | tail -20 || true
           ! grep -iE "parse error|script error|syntax error" shots/plymouthd.log
+          # our theme (not the distribution default) was the one loaded, by the script plugin
+          grep "Loading boot splash theme" shots/plymouthd.log
+          grep -q "Loading boot splash theme '.*kdec-midnight/kdec-midnight.plymouth'" shots/plymouthd.log
           # it really drew something: the X11 renderer opened, and every screenshot has more than one color
           grep -q "renderers/x11.so" shots/plymouthd.log && ! grep -q 'Could not load module "/usr/lib/plymouth/renderers/x11.so"' shots/plymouthd.log
           for f in shots/*.png; do n=$(identify -format %k "$f"); echo "$f: $n colors"; test "$n" -gt 1; done
