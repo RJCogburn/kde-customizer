@@ -79,7 +79,7 @@ def test_install_script_sections(built):
     t, out = built
     sh = (out / "install.sh").read_text()
     assert "plasma-apply-cursortheme" in sh and t.cursors_name in sh
-    assert 'pkexec bash "$DIR/login/apply.sh" "$DIR"' in sh
+    assert sh.count("pkexec") == 1 and "PARTS+=(login)" in sh
     assert "--no-login" in sh and "--layout" in sh
     assert "kwriteconfig6 --notify --file kwinrc --group Plugins --key wobblywindowsEnabled true" in sh
     assert "__aurorae__svg__" in sh

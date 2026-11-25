@@ -106,6 +106,15 @@ class CursorSet:
 
 
 @dataclass
+class BootSplash:
+    generate: bool = False            # Plymouth boot splash in the palette (admin password + initramfs rebuild)
+    background: str = "gradient"      # gradient | solid
+    text: str = ""                    # big text in the middle; "" = the theme name
+
+    BACKGROUNDS = ("gradient", "solid")
+
+
+@dataclass
 class Gtk:
     generate: bool = True             # GTK 4 / libadwaita (GNOME) apps in the palette, via ~/.config/gtk-4.0
     flatpak: bool = False             # also let Flatpak apps read it (flatpak override --user, read-only)
@@ -159,6 +168,7 @@ class Theme:
     splash_screen: SplashScreen = field(default_factory=SplashScreen)
     login_screen: LoginScreen = field(default_factory=LoginScreen)
     gtk: Gtk = field(default_factory=Gtk)
+    boot_splash: BootSplash = field(default_factory=BootSplash)
     wallpaper: str = ""               # path to image; copied into the package
     decoration: Decoration = field(default_factory=Decoration)
     fonts: Fonts = field(default_factory=Fonts)
@@ -235,6 +245,7 @@ def from_dict(data: dict[str, Any]) -> Theme:
         "splash_screen": lambda d: _build(SplashScreen, d),
         "login_screen": lambda d: _build(LoginScreen, d),
         "gtk": lambda d: _build(Gtk, d),
+        "boot_splash": lambda d: _build(BootSplash, d),
         "panels": lambda lst: [_build(Panel, p) for p in lst],
     }
     for key, fn in sub.items():
@@ -248,6 +259,8 @@ def from_dict(data: dict[str, Any]) -> Theme:
         raise ValueError(f"[plasma] opacity must be 0.3..1.0, got {p.opacity}")
     if theme.splash_screen.background not in SplashScreen.BACKGROUNDS:
         raise ValueError(f"[splash_screen] background must be one of {', '.join(SplashScreen.BACKGROUNDS)}")
+    if theme.boot_splash.background not in BootSplash.BACKGROUNDS:
+        raise ValueError(f"[boot_splash] background must be one of {', '.join(BootSplash.BACKGROUNDS)}")
     if theme.login_screen.background not in LoginScreen.BACKGROUNDS:
         raise ValueError(f"[login_screen] background must be one of {', '.join(LoginScreen.BACKGROUNDS)}")
     if theme.cursorset.fill not in CursorSet.FILLS:
@@ -314,7 +327,7 @@ def dumps(theme: Theme) -> str:
             continue
         else:
             out.append(f"{_key(k)} = {_val(v)}")
-    for name in ("palette", "plasma", "iconset", "cursorset", "widgets", "decoration", "splash_screen", "login_screen", "gtk", "fonts"):
+    for name in ("palette", "plasma", "iconset", "cursorset", "widgets", "decoration", "splash_screen", "login_screen", "boot_splash", "gtk", "fonts"):
         out.append(f"\n[{name}]")
         out += [f"{_key(k)} = {_val(v)}" for k, v in tables[name].items()]
     for p in d["panels"]:

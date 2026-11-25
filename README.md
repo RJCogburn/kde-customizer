@@ -16,6 +16,8 @@ From about seven palette colors, one theme spec generates:
   Wayland and X11 apps
 - the **login screen** (Plasma Login Manager, or SDDM's Breeze theme): your colors, Plasma style, icons, cursors and wallpaper;
   installing asks for the admin password once, and again only when it changes
+- a **boot splash** (Plymouth: theme name, progress bar and the disk-unlock prompt in your palette; opt-in,
+  installing rebuilds the initramfs)
 - a **splash screen** (theme name and a progress bar over a palette gradient or your dimmed wallpaper)
 - a **window decoration** (Aurorae title bars in your palette: corner radius, title height, symbol or
   colored-dot buttons)
@@ -89,8 +91,8 @@ kdec check mytheme.toml                # readability (contrast) and missing-them
 ```
 
 Someone you share an export with only needs `tar xzf Name.tar.gz && ./Name/install.sh`.
-Themes with `[login_screen]` ask for the admin password to theme the login screen; `./install.sh --no-login`
-skips that part.
+Themes with `[login_screen]` or `[boot_splash]` ask for the admin password once (only when those parts changed);
+`./install.sh --no-login` / `--no-boot` skip them.
 
 ## Tests
 

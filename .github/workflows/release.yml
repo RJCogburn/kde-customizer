@@ -92,6 +92,48 @@ jobs:
       - name: pytest
         run: QT_QPA_PLATFORM=offscreen python -m pytest -q
 
+  # The generated Plymouth theme run by the real plymouthd (root only) through its X11 renderer on Xvfb:
+  # splash, disk-unlock password prompt and a message, screenshotted and uploaded for a look.
+  boot-test:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Plymouth, Xvfb
+        run: pacman -Syu --noconfirm --needed plymouth xorg-server-xvfb xorg-xwd imagemagick xdotool python ttf-dejavu
+      - uses: actions/checkout@v4
+      - name: Run the boot splash
+        run: |
+          set -euxo pipefail
+          cp examples/midnight.toml /tmp/t.toml
+          printf '\n[boot_splash]\ngenerate = true\n' >> /tmp/t.toml
+          PYTHONPATH=src python3 -m kdecustomizer.cli build /tmp/t.toml -o /tmp/b | tail -1
+          KDEC_BOOT_ROOT=/ bash /tmp/b/Midnight/boot/apply.sh /tmp/b/Midnight
+          Xvfb :99 -screen 0 1280x800x24 & sleep 2
+          export DISPLAY=:99
+          mkdir -p shots
+          plymouthd --no-daemon --debug --debug-file=shots/plymouthd.log --tty=/dev/null --no-boot-log \
+            --graphical-boot --kernel-command-line="splash plymouth.theme=kdec-midnight" &
+          sleep 2
+          plymouth show-splash; sleep 3
+          shot() { xwd -root -display :99 | convert xwd:- "shots/$1.png"; }
+          shot 1-splash
+          (plymouth ask-for-password --prompt="Please enter passphrase for disk cryptroot" > /dev/null || true) &
+          sleep 1
+          xdotool search --name . windowfocus 2>/dev/null || true
+          xdotool type --delay 80 secret || true
+          sleep 1; shot 2-password
+          plymouth display-message --text="Starting services" || true
+          sleep 1; shot 3-message
+          plymouth quit || true
+          sleep 1
+          grep -iE "script|error" shots/plymouthd.log | grep -iv "no error" | tail -20 || true
+          ! grep -iE "parse error|script error|syntax error" shots/plymouthd.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: boot-splash-shots
+          path: shots/
+
   # The login screen script for real, as root, against an SDDM install (the dev box runs Plasma Login).
   login-test:
     runs-on: ubuntu-latest
@@ -197,7 +239,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [install-test, aur, login-test, test]
+    needs: [install-test, aur, login-test, test, boot-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

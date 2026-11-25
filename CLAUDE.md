@@ -49,6 +49,15 @@ with `generate = false` remove that line and file. `flatpak = true` adds `flatpa
 --filesystem=xdg-config/gtk-4.0:ro`. Check with a real libadwaita window: `/usr/bin/python3` + gi Adw, a temp
 `XDG_CONFIG_HOME`, `Gtk.WidgetPaintable` → `render_texture` → PNG (no screenshot needed).
 
+## Boot splash (`[boot_splash] generate = true`, opt-in)
+`generators/bootsplash.py` → `build/<Slug>/boot/kdec-<slug>/` = Plymouth `script` theme (`.plymouth`, `.script`, PNGs
+written with zlib — the script plugin loads PNG only) + `boot/apply.sh` (root: copies to
+/usr/share/plymouth/themes, `plymouth-set-default-theme -R` = initramfs rebuild, prints how to go back).
+The script must keep the disk-unlock prompt working: SetDisplayPassword/Question/Normal/Message callbacks.
+`install.sh` runs login/apply.sh and boot/apply.sh in ONE pkexec, for whichever part's hash stamp changed
+(`~/.local/state/kde-customizer/{login,boot}-<Slug>`). plymouthd only runs as root, so the visual check is CI's
+`boot-test` job (Xvfb + Plymouth's x11 renderer, screenshots uploaded as an artifact). Test hook: KDEC_BOOT_ROOT.
+
 ## Login screen (`[login_screen] generate = true`)
 Two greeters, picked at install time from `display-manager.service` (else whichever greeter user exists):
 - Plasma Login Manager (`plasmalogin`, Plasma 6.6+, this dev box): compiled QML greeter running as user
