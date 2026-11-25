@@ -6,7 +6,7 @@ pkgdesc="Build, preview and apply complete KDE Plasma 6 themes from one TOML spe
 arch=('any')
 url="https://github.com/RJCogburn/kde-customizer"
 license=('GPL-3.0-or-later')
-depends=('python' 'pyside6' 'python-pillow'
+depends=('python' 'pyside6' 'qt6-svg' 'python-pillow'
          'plasma-workspace' 'kconfig' 'kpackage' 'qt6-tools')
 makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
 optdepends=('claude-code: AI design with your Claude Code login (default AI provider)'

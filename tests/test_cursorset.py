@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from conftest import SVG, pyside6
+from conftest import SVG, qtsvg
 from kdecustomizer import cursorset, spec
 
 
@@ -88,7 +88,7 @@ def test_scalable_themes_lists_only_svg_themes(cursor_base, tmp_path):
     assert cursorset.scalable_themes() == ["breeze_cursors"]
 
 
-@pytest.mark.skipif(not pyside6(), reason="needs PySide6 (QtSvg) to render")
+@pytest.mark.skipif(not qtsvg(), reason="needs PySide6 with QtSvg to render")
 def test_real_render(cursor_base, tmp_path):
     out = cursorset.build(theme(), tmp_path)
     data = (out / "cursors/default").read_bytes()

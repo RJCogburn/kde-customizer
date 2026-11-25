@@ -205,7 +205,10 @@ class Preview(QWidget):
         if not self._ptr:
             return
         from PySide6.QtCore import QByteArray
-        from PySide6.QtSvg import QSvgRenderer
+        try:
+            from PySide6.QtSvg import QSvgRenderer
+        except ImportError:         # distro PySide6 without the Qt SVG module: no pointer in the preview
+            return
         text, frame = self._ptr
         r = QSvgRenderer(QByteArray(text.encode()))
         k = 24 / frame.get("nominal_size", 24)

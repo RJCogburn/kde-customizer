@@ -87,7 +87,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Python, PySide6, KConfig
-        run: pacman -Syu --noconfirm --needed python python-pytest pyside6 kconfig ttf-dejavu
+        run: pacman -Syu --noconfirm --needed python python-pytest pyside6 qt6-svg kconfig ttf-dejavu
       - uses: actions/checkout@v4
       - name: pytest
         run: QT_QPA_PLATFORM=offscreen python -m pytest -q

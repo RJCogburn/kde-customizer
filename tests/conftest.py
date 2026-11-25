@@ -72,6 +72,14 @@ def have(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
+def qtsvg() -> bool:
+    try:
+        import PySide6.QtSvg  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def pyside6() -> bool:
     try:
         import PySide6  # noqa: F401
