@@ -36,6 +36,19 @@ pinned black, grays slide body→outline by lightness, Breeze's colors map to pa
 Aliases stay relative symlinks. Only bases with `cursors_scalable/` work (`scalable_themes()`).
 Check with a contact sheet: parse the Xcursor images and paint them on dark + light backgrounds.
 
+## Login screen (`[login_screen] generate = true`)
+Plasma 6.8 uses Plasma Login Manager (`plasmalogin`, the SDDM successor), not SDDM themes: a compiled QML greeter
+running as user `plasmalogin` (home `/var/lib/plasmalogin`). It reads that user's `~/.config/{kdeglobals,plasmarc,
+kcminputrc}` and `~/.local/share`; the wallpaper is in `/etc/plasmalogin.conf` `[Greeter][Wallpaper][<plugin>][General]`
+with images in `~plasmalogin/wallpapers/`. `generators/loginscreen.py` → `build/<Slug>/login/apply.sh` (root:
+stages assets, `runuser`s `greeter.sh`, writes the conf) + `greeter.sh` (as plasmalogin: copies assets, merges keys
+with kwriteconfig6, clears its cache). `install.sh` runs `pkexec bash login/apply.sh` once and stores a hash in
+`~/.local/state/kde-customizer/login-<Slug>` to skip the password prompt when nothing changed; `--no-login` skips it.
+Upstream source: invent.kde.org/plasma/plasma-login-manager (`src/frontend/kcm/` = what System Settings writes).
+Test without root: run apply.sh with the chown/runuser/conf lines stripped into a fake home, then
+`HOME=… XDG_CONFIG_HOME=… XDG_DATA_HOME=… XDG_CACHE_HOME=… /usr/lib/plasma-login-greeter --test` (full screen, gray
+background — the wallpaper is a separate process) and screenshot it.
+
 ## GUI
 `gui/app.py` = editor tabs (left) + `gui/preview.py` live preview (right) + `gui/ai_panel.py` on top.
 The preview paints a mock desktop on a fixed 1280x800 canvas from `colors.scheme()` / `konsole.ansi()` — the
@@ -107,9 +120,8 @@ Check shape changes by tiling the pieces with `QSvgRenderer.render(p, id, rect)`
 and deletes `~/.cache/plasma_theme_<Slug>*` so re-installs pick up new colors. `Theme.plasma_style_name` is what LnF sets.
 
 ## Roadmap (not built yet)
-1. **SDDM** login theme — needs root (pkexec).
-2. **Snapshot** — `kdec snapshot` to read the current desktop config into a spec.
-3. GUI: tweaks editor; preview of the Kickoff menu / dialogs.
+1. **Snapshot** — `kdec snapshot` to read the current desktop config into a spec.
+2. GUI: tweaks editor; preview of the Kickoff menu / dialogs.
 
 ## Packaging / releases
 `packaging/appimage/build.sh` (python-appimage -> `trim-runtime.sh` -> AppImage; leaves `build/appdir`) then

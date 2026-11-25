@@ -43,6 +43,12 @@ generate = true
 background = "gradient"   # gradient | wallpaper (the theme's, dimmed) | solid
 text = ""                 # "" = the theme name
 
+# The theme on the Plasma Login screen (installing asks for the admin password, only when it changed)
+[login_screen]
+generate = true
+background = "wallpaper"  # wallpaper (palette color without one) | color
+clock = true
+
 [decoration]
 buttons_left = "M"
 buttons_right = "IAX"

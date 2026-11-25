@@ -409,6 +409,23 @@ class Main(QMainWindow):
         self.s_text.textChanged.connect(self.changed)
         f.addRow("Text", self.s_text)
 
+        f = self._group("Login screen", v)
+        self.l_generate = QCheckBox("Theme the login screen")
+        self.l_generate.setToolTip("Colors, Plasma style, icons, cursors and wallpaper on the Plasma Login "
+                                   "screen. Installing asks for the admin password (only when it changed).")
+        self.l_generate.toggled.connect(self.changed)
+        self.l_generate.toggled.connect(self._login_generate_toggled)
+        f.addRow(self.l_generate)
+        self.l_background = QComboBox()
+        self.l_background.addItems(list(spec.LoginScreen.BACKGROUNDS))
+        self.l_background.setToolTip("wallpaper = the theme's wallpaper (palette color without one); "
+                                     "color = the palette background")
+        self.l_background.currentTextChanged.connect(self.changed)
+        f.addRow("Background", self.l_background)
+        self.l_clock = QCheckBox("Show the clock")
+        self.l_clock.toggled.connect(self.changed)
+        f.addRow(self.l_clock)
+
         f = self._group("Window decoration", v)
         self.deco: dict[str, QLineEdit] = {}
         for attr, label, tip in [
@@ -447,6 +464,10 @@ class Main(QMainWindow):
         f.addRow("Buttons", self.d_style)
         v.addStretch()
         return scroll(page)
+
+    def _login_generate_toggled(self, on: bool) -> None:
+        self.l_background.setEnabled(on)
+        self.l_clock.setEnabled(on)
 
     def _cursor_generate_toggled(self, on: bool) -> None:
         self.text["cursors"].setEnabled(not on)
@@ -617,6 +638,10 @@ class Main(QMainWindow):
         self.s_background.setCurrentText(t.splash_screen.background)
         self.s_text.setText(t.splash_screen.text)
         self._splash_generate_toggled(t.splash_screen.generate)
+        self.l_generate.setChecked(t.login_screen.generate)
+        self.l_background.setCurrentText(t.login_screen.background)
+        self.l_clock.setChecked(t.login_screen.clock)
+        self._login_generate_toggled(t.login_screen.generate)
         self.c_generate.setChecked(t.cursorset.generate)
         self.c_base.setCurrentText(t.cursorset.base)
         self.c_fill.setCurrentText(t.cursorset.fill)
@@ -668,6 +693,9 @@ class Main(QMainWindow):
         t.splash_screen.generate = self.s_generate.isChecked()
         t.splash_screen.background = self.s_background.currentText()
         t.splash_screen.text = self.s_text.text().strip()
+        t.login_screen.generate = self.l_generate.isChecked()
+        t.login_screen.background = self.l_background.currentText()
+        t.login_screen.clock = self.l_clock.isChecked()
         t.cursorset.generate = self.c_generate.isChecked()
         t.cursorset.base = self.c_base.currentText().strip() or "breeze_cursors"
         t.cursorset.fill = self.c_fill.currentText()

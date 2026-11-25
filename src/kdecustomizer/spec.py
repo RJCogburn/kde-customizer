@@ -106,6 +106,15 @@ class CursorSet:
 
 
 @dataclass
+class LoginScreen:
+    generate: bool = False            # put the theme on the Plasma Login screen (asks for the admin password once)
+    background: str = "wallpaper"     # wallpaper (the theme's) | color (palette background)
+    clock: bool = True                # show the clock
+
+    BACKGROUNDS = ("wallpaper", "color")
+
+
+@dataclass
 class IconSet:
     generate: bool = False            # build an icon theme matched to the palette; overrides `icons`
     base: str = "Papirus-Dark"        # installed SVG icon theme to recolor and inherit from
@@ -142,6 +151,7 @@ class Theme:
     widgets: Widgets = field(default_factory=Widgets)
     splash: str = "org.kde.Breeze"    # installed splash (ignored if splash_screen.generate)
     splash_screen: SplashScreen = field(default_factory=SplashScreen)
+    login_screen: LoginScreen = field(default_factory=LoginScreen)
     wallpaper: str = ""               # path to image; copied into the package
     decoration: Decoration = field(default_factory=Decoration)
     fonts: Fonts = field(default_factory=Fonts)
@@ -216,6 +226,7 @@ def from_dict(data: dict[str, Any]) -> Theme:
         "cursorset": lambda d: _build(CursorSet, d),
         "widgets": lambda d: _build(Widgets, d),
         "splash_screen": lambda d: _build(SplashScreen, d),
+        "login_screen": lambda d: _build(LoginScreen, d),
         "panels": lambda lst: [_build(Panel, p) for p in lst],
     }
     for key, fn in sub.items():
@@ -229,6 +240,8 @@ def from_dict(data: dict[str, Any]) -> Theme:
         raise ValueError(f"[plasma] opacity must be 0.3..1.0, got {p.opacity}")
     if theme.splash_screen.background not in SplashScreen.BACKGROUNDS:
         raise ValueError(f"[splash_screen] background must be one of {', '.join(SplashScreen.BACKGROUNDS)}")
+    if theme.login_screen.background not in LoginScreen.BACKGROUNDS:
+        raise ValueError(f"[login_screen] background must be one of {', '.join(LoginScreen.BACKGROUNDS)}")
     if theme.cursorset.fill not in CursorSet.FILLS:
         raise ValueError(f"[cursorset] fill must be one of {', '.join(CursorSet.FILLS)}")
     if not 0 <= theme.widgets.radius <= 12:
@@ -293,7 +306,7 @@ def dumps(theme: Theme) -> str:
             continue
         else:
             out.append(f"{_key(k)} = {_val(v)}")
-    for name in ("palette", "plasma", "iconset", "cursorset", "widgets", "decoration", "splash_screen", "fonts"):
+    for name in ("palette", "plasma", "iconset", "cursorset", "widgets", "decoration", "splash_screen", "login_screen", "fonts"):
         out.append(f"\n[{name}]")
         out += [f"{_key(k)} = {_val(v)}" for k, v in tables[name].items()]
     for p in d["panels"]:

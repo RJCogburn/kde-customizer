@@ -88,6 +88,9 @@ color scheme, Plasma style, Konsole scheme, global theme package, panel layout a
   cursor theme with SVG cursors: "breeze_cursors" or "Breeze_Light"; `cursors` is then ignored). `fill` =
   the pointer body: "background" (classic: dark body on dark themes, light on light), "foreground"
   (inverted, high visibility) or "accent" (colorful). Outline, spinner and badges follow the palette.
+- `[login_screen] generate = true` puts the theme (colors, Plasma style, icons, cursors, fonts) on the
+  Plasma Login Manager screen; `background` wallpaper (the theme's; palette color without one) | color,
+  `clock` true/false. Installing it asks for the admin password, so only enable it when asked.
 - `splash`: keep "org.kde.Breeze" unless asked. `[splash_screen] generate = true` (recommended) makes a
   splash in the palette: the theme name (or `text`) and an accent progress bar, `background` gradient |
   wallpaper (the theme's, dimmed — needs `wallpaper`) | solid.
@@ -323,6 +326,9 @@ def check(theme: spec.Theme, installed: dict[str, list[str]] | None = None) -> l
     if theme.widgets.generate and not system.kvantum_installed():
         out.append("widgets.generate needs Kvantum, which is not installed here: apps will keep "
                    f"{theme.widget_style!r} (install the kvantum package)")
+    if theme.login_screen.generate and not system.plasma_login_installed():
+        out.append("login_screen.generate needs Plasma Login Manager, which is not installed here: "
+                   "the login screen is left as is")
     if theme.cursorset.generate:
         from .cursorset import scalable_themes
         bases = scalable_themes()
