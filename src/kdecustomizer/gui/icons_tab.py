@@ -100,6 +100,18 @@ class IconsTab(QWidget):
         self.perf.currentTextChanged.connect(lambda t: self.s.setValue("icons/performance", t))
         self.perf_label = QLabel("Fooocus speed")
         sf.addRow(self.perf_label, self.perf)
+        self.model = QComboBox(editable=True)
+        self.model.setInsertPolicy(QComboBox.NoInsert)
+        self.model.addItem("Default (the image AI's own)", "")
+        self.model.addItem("Auto (best fit for icons)", "auto")
+        saved = self.s.value("icons/model", "")
+        if saved and saved not in ("", "auto"):
+            self.model.addItem(saved, saved)
+        self.model.setCurrentIndex(max(0, self.model.findData(saved)))
+        self.model.setToolTip("Checkpoint the icons are rendered with. Detect lists your image AI's models.")
+        self.model.currentIndexChanged.connect(lambda _: self.s.setValue("icons/model", self._model()))
+        self.model_label = QLabel("Model")
+        sf.addRow(self.model_label, self.model)
         sv.addLayout(sf)
 
         self.grid = QListWidget()
@@ -174,7 +186,7 @@ class IconsTab(QWidget):
 
     def _mode_changed(self, *_):
         image = self.mode.currentData() == "image"
-        for w in (self.url, self.url_label, self.detect_btn, self.perf, self.perf_label):
+        for w in (self.url, self.url_label, self.detect_btn, self.perf, self.perf_label, self.model, self.model_label):
             w.setVisible(image)
         self.changed.emit()
 
@@ -218,7 +230,31 @@ class IconsTab(QWidget):
             self._say(str(e), True)
             return
         self.s.setValue("icons/image_url", self.url.text().strip())
-        self._say(f"Found {b.name} at {b.url}. Background removal: {imagegen.cutout_method()}.")
+        self._fill_models(b)
+        self._say(f"Found {b.name} at {b.url} ({len(b.models())} models). "
+                  f"Background removal: {imagegen.cutout_method()}.")
+
+    def _model(self) -> str:
+        """The chosen checkpoint: "" (default), "auto", or a name (also when typed into the box)."""
+        i = self.model.currentIndex()
+        if i >= 0 and self.model.itemText(i) == self.model.currentText():
+            return self.model.itemData(i) or ""
+        return self.model.currentText().strip()
+
+    def _fill_models(self, backend) -> None:
+        keep = self._model()
+        names = backend.models()
+        default, auto = backend.default_model(), imagegen.pick_model(names)
+        self.model.blockSignals(True)
+        self.model.clear()
+        self.model.addItem(f"Default ({default})" if default else "Default (the image AI's own)", "")
+        self.model.addItem(f"Auto: {auto}" if auto else "Auto (no good fit found: default)", "auto")
+        for n in names:
+            self.model.addItem(n, n)
+        idx = self.model.findData(keep)
+        self.model.setCurrentIndex(idx if idx >= 0 else 0)
+        self.model.blockSignals(False)
+        self.s.setValue("icons/model", self._model())
 
     def _prepare(self) -> tuple[spec.Theme, Path] | None:
         """Signature icons live next to the spec, so it must be saved first."""
@@ -236,10 +272,10 @@ class IconsTab(QWidget):
             return
         theme, sig = prep
         if self.mode.currentData() == "image":
-            url, perf = self.url.text().strip(), self.perf.currentText().strip()
+            url, perf, model = self.url.text().strip(), self.perf.currentText().strip(), self._model()
 
             def job(log):
-                return signature.generate_images(theme, sig, url, performance=perf, only=only, log=log)
+                return signature.generate_images(theme, sig, url, performance=perf, only=only, model=model, log=log)
         else:
             prov, key = current_provider()
 

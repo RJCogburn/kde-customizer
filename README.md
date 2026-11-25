@@ -166,6 +166,8 @@ file manager, terminal, browser, settings), made in a style you describe:
 kdec icons mytheme.toml --style "brushed gold metal, dark glass"            # AI-drawn vectors
 kdec icons mytheme.toml --mode image --image-url http://127.0.0.1:7865       # local image AI (Fooocus port)
 kdec icons mytheme.toml --mode image --only user-trash,utilities-terminal    # remake a few
+kdec icons mytheme.toml --mode image --list-models                           # your image AI's checkpoints
+kdec icons mytheme.toml --mode image --image-model auto                      # or a checkpoint name
 kdec icons mytheme.toml --prompts > prompts.txt                              # for any image app…
 kdec icons mytheme.toml --import ~/Pictures/my-icons                         # …then import (folder.png, …)
 ```
@@ -173,7 +175,8 @@ kdec icons mytheme.toml --import ~/Pictures/my-icons                         # �
 Signature icons are kept in a folder next to the theme file and bundled into exports. Rendered icons get their
 background cut out by a segmentation model (rembg) when one is reachable — installed for kde-customizer, or the
 one your image AI already ships (Fooocus, ComfyUI and A1111 have it; it's found automatically while the AI runs)
-— and by a built-in cutter otherwise. The raw renders are kept, so **Re-cut backgrounds** (or
+— and by a built-in cutter otherwise. **Model** picks the checkpoint they're rendered with: your image AI's
+default, **Auto** (the best fit for clean object renders among your checkpoints) or any one it lists. The raw renders are kept, so **Re-cut backgrounds** (or
 `kdec icons mytheme.toml --recut`) redoes the cut-outs later without rendering again.
 
 ## Theme spec

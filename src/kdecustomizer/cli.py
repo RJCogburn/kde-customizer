@@ -122,6 +122,18 @@ def cmd_icons(a) -> int:
     """Make signature icons for a theme (and switch on its generated icon set)."""
     from . import ai, signature
     theme = spec.load(a.spec)
+    if a.list_models:
+        try:
+            b = signature.imagegen.detect(a.image_url, a.performance, "auto")
+        except signature.imagegen.ImageGenError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        names = b.models()
+        print(f"{b.name}: {len(names)} checkpoints (default: {b.default_model() or '?'}; auto: "
+              f"{signature.imagegen.pick_model(names) or 'default'})")
+        for n in names:
+            print(n)
+        return 0
     if a.prompts:
         print(signature.prompts_text(theme))
         return 0
@@ -142,7 +154,8 @@ def cmd_icons(a) -> int:
             done = signature.import_images(theme, sig, a.import_dir)
             mode = "image"
         elif a.mode == "image":
-            done = signature.generate_images(theme, sig, a.image_url, performance=a.performance, only=only, log=log)
+            done = signature.generate_images(theme, sig, a.image_url, performance=a.performance, only=only,
+                                             model=a.image_model, log=log)
             mode = "image"
         else:
             prov = replace(ai.PRESETS[a.provider])
@@ -243,6 +256,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--image-url", default="http://127.0.0.1:7865",
                    help="local image AI (Fooocus, ComfyUI or A1111/Forge); default Fooocus' port")
     s.add_argument("--performance", default="", help="Fooocus performance preset, e.g. Speed, Quality, Lightning")
+    s.add_argument("--image-model", default="", metavar="NAME",
+                   help='checkpoint for image mode: a name your image AI lists, "auto" (best fit for icons) or '
+                        "empty (its default); --list-models shows them")
+    s.add_argument("--list-models", action="store_true", help="list the image AI's checkpoints and exit")
     s.add_argument("--prompts", action="store_true", help="print prompts to make the icons in any image app")
     s.add_argument("--import", dest="import_dir", metavar="DIR", help="import <icon-name>.png/.svg files from DIR")
     s.add_argument("--recut", action="store_true",

@@ -185,9 +185,14 @@ def generate_svg(theme: Theme, sig_dir: Path, prov: ai.Provider, *, api_key: str
 # --- image mode -----------------------------------------------------------------------------------
 
 def generate_images(theme: Theme, sig_dir: Path, url: str, *, performance: str = "", only: list[str] | None = None,
-                    seed: int | None = None, log=lambda s: None) -> list[str]:
-    """Render signature icons with a local image AI. One shared seed keeps the set consistent."""
-    backend = imagegen.detect(url, performance)
+                    seed: int | None = None, model: str = "", log=lambda s: None) -> list[str]:
+    """Render signature icons with a local image AI. One shared seed keeps the set consistent.
+    `model`: checkpoint name, "auto" or "" (the image AI's default)."""
+    backend = imagegen.detect(url, performance, model)
+    if (m := backend.chosen_model()):
+        log(f"model: {m}")
+    elif model and model != "auto":
+        log(f"model {model!r} isn't in {backend.name}'s list — using its default")
     seed = seed or imagegen.random_seed()
     done = []
     slots = only or list(SLOTS)

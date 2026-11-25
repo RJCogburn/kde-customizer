@@ -32,6 +32,10 @@ Target system: Plasma 6.8, Qt 6, Python 3.11+ (dev box runs 3.14, CachyOS).
   left alone. Written as SVG-wrapped PNGs in `apps-recolored/scalable` (after signature dirs, which win).
 - `signature.py` — 14 `SLOTS` made custom: `svg` (AI JSON of SVGs, sanitized), `image` (local image AI), or
   `import`. Stored in `<spec dir>/<slug>-icons/{svg,png}/<slot>.*`; they replace recolored versions.
+- `imagegen.py` — checkpoint choice: `Backend.models()` / `default_model()` / `chosen_model()` (`model` =
+  name | "auto" → `pick_model()` by name: Juggernaut/RealVis/DreamShaper…, never inpaint/refiner/Pony/anime/
+  Lightning/Turbo | "" = default). Fooocus: the "Base Model (SDXL only)" dropdown value; A1111:
+  `override_settings.sd_model_checkpoint` per request; ComfyUI: `ckpt_name`. GUI remembers it in QSettings.
 - `imagegen.py` — Fooocus (Gradio 3 queue over a stdlib websocket; settings matched by label), ComfyUI,
   A1111/Forge. `to_icon()` cuts the background with rembg — imported here, or through another Python that has
   it (`$KDEC_REMBG_PYTHON`, the cached one, or the running image AI's venv found via /proc: Fooocus/ComfyUI/A1111

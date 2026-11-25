@@ -50,6 +50,7 @@ def _ok(url: str) -> bytes | None:
 
 class Backend:
     name = "?"
+    model = ""            # checkpoint to render with ("" = the image AI's own default; "auto" = pick_model())
 
     def __init__(self, url: str):
         self.url = url.rstrip("/")
@@ -57,16 +58,60 @@ class Backend:
     def generate(self, prompt: str, negative: str, seed: int) -> bytes:
         raise NotImplementedError
 
+    def models(self) -> list[str]:
+        """Checkpoints the image AI can use (empty if it can't say)."""
+        return []
+
+    def default_model(self) -> str:
+        return ""
+
+    def chosen_model(self) -> str:
+        """The checkpoint generate() will ask for, or "" for the image AI's default."""
+        names = self.models()
+        if self.model == "auto":
+            return pick_model(names) or ""
+        return self.model if self.model in names else ""
+
+
+# Words in checkpoint names: general SDXL models that render clean objects well vs ones that don't fit icons
+# (inpainting/refiner models, Pony/anime fine-tunes, few-step Lightning/Turbo models needing other settings).
+_GOOD = ("juggernaut", "realvis", "dreamshaper", "zavychroma", "copax", "proteus", "albedo", "crystalclear",
+         "nightvision", "leosam", "dynavision", "sdxl_base", "sd_xl_base", "base_1.0")
+_BAD = ("inpaint", "refiner", "pony", "anime", "animagine", "illustrious", "noob", "hentai", "nsfw", "lightning",
+        "turbo", "hyper", "lcm", "sd15", "sd1.5", "v1-5", "1.5")
+
+
+def pick_model(names: list[str]) -> str | None:
+    """Best checkpoint for clean, object-on-white icon renders, by name; None if nothing fits."""
+    best, score = None, 0
+    for n in names:
+        low = n.lower()
+        if any(b in low for b in _BAD):
+            continue
+        s = next((len(_GOOD) - i for i, g in enumerate(_GOOD) if g in low), 0)
+        if s > score:
+            best, score = n, s
+    return best
+
 
 class A1111(Backend):
     """AUTOMATIC1111 / Forge / reForge / SD.Next (`--api`)."""
     name = "A1111/Forge"
 
-    def generate(self, prompt, negative, seed):
+    def models(self) -> list[str]:
         try:
-            r = _post_json(f"{self.url}/sdapi/v1/txt2img", {
-                "prompt": prompt, "negative_prompt": negative, "seed": seed, "width": 1024, "height": 1024,
-                "steps": 25, "cfg_scale": 6, "batch_size": 1, "n_iter": 1})
+            return [m["title"] for m in json.loads(_get(f"{self.url}/sdapi/v1/sd-models"))]
+        except (OSError, ValueError, KeyError):
+            return []
+
+    def generate(self, prompt, negative, seed):
+        body = {"prompt": prompt, "negative_prompt": negative, "seed": seed, "width": 1024, "height": 1024,
+                "steps": 25, "cfg_scale": 6, "batch_size": 1, "n_iter": 1}
+        if (m := self.chosen_model()):
+            body["override_settings"] = {"sd_model_checkpoint": m}       # just for this request
+            body["override_settings_restore_afterwards"] = True
+        try:
+            r = _post_json(f"{self.url}/sdapi/v1/txt2img", body)
         except urllib.error.HTTPError as e:
             raise ImageGenError(f"{self.name}: HTTP {e.code}: {e.read()[:200]!r}") from None
         return base64.b64decode(r["images"][0])
@@ -75,12 +120,18 @@ class A1111(Backend):
 class ComfyUI(Backend):
     name = "ComfyUI"
 
+    def models(self) -> list[str]:
+        try:
+            info = json.loads(_get(f"{self.url}/object_info/CheckpointLoaderSimple"))
+            return list(info["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"][0])
+        except (OSError, ValueError, KeyError, IndexError):
+            return []
+
     def _checkpoint(self) -> str:
-        info = json.loads(_get(f"{self.url}/object_info/CheckpointLoaderSimple"))
-        names = info["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"][0]
+        names = self.models()
         if not names:
             raise ImageGenError("ComfyUI has no checkpoints installed")
-        return next((n for n in names if "xl" in n.lower()), names[0])
+        return self.chosen_model() or next((n for n in names if "xl" in n.lower()), names[0])
 
     def generate(self, prompt, negative, seed):
         ckpt = self._checkpoint()
@@ -174,6 +225,9 @@ class _WS:
             pass
 
 
+BASE_MODEL = "Base Model (SDXL only)"     # Fooocus' checkpoint dropdown
+
+
 class Fooocus(Backend):
     """Fooocus (incl. mashb1t's 1-Up Edition) through its Gradio 3 queue — the same calls its Generate
     button makes: get_task(all settings) then generate_clicked(task). Settings are matched by label, so
@@ -193,6 +247,16 @@ class Fooocus(Backend):
         if self.gen_fn is None or len(deps[self.task_fn]["inputs"]) < 50:
             raise ImageGenError("this Fooocus version's interface isn't recognised")
         self.inputs = deps[self.task_fn]["inputs"]
+
+    def _base_model(self) -> dict:
+        return next((c.get("props", {}) for c in self.comps.values()
+                     if c.get("props", {}).get("label") == BASE_MODEL), {})
+
+    def models(self) -> list[str]:
+        return [ch[0] if isinstance(ch, (list, tuple)) else ch for ch in self._base_model().get("choices", [])]
+
+    def default_model(self) -> str:
+        return self._base_model().get("value") or ""
 
     def _value(self, cid: int, prompt: str, negative: str, seed: int):
         c = self.comps[cid]
@@ -216,6 +280,8 @@ class Fooocus(Backend):
             return True
         if label == "Performance" and self.performance:
             return self.performance
+        if label == BASE_MODEL and (m := self.chosen_model()):
+            return m
         if label == "Aspect Ratios":
             choices = [ch[0] if isinstance(ch, (list, tuple)) else ch for ch in p.get("choices", [])]
             return next((ch for ch in choices if ch.startswith("1024×1024")), p.get("value"))
@@ -264,20 +330,26 @@ class Fooocus(Backend):
         return _get(f"{self.url}/file={urllib.parse.quote(files[-1])}", timeout=60)
 
 
-def detect(url: str, performance: str = "") -> Backend:
-    """Return the backend serving `url`, or raise ImageGenError with a helpful message."""
+def detect(url: str, performance: str = "", model: str = "") -> Backend:
+    """Return the backend serving `url`, or raise ImageGenError with a helpful message.
+
+    `model`: checkpoint to render with — a name the image AI lists, "auto" (pick_model) or "" (its default)."""
     url = url.rstrip("/")
     if _ok(f"{url}/sdapi/v1/options") is not None:
-        return A1111(url)
-    if _ok(f"{url}/system_stats") is not None:
-        return ComfyUI(url)
-    cfg = _ok(f"{url}/config")
-    if cfg and b"Fooocus" in cfg:
-        return Fooocus(url, performance)
-    if cfg is None and _ok(url) is None:
-        raise ImageGenError(f"nothing is answering at {url} — start your image AI (e.g. from Stability Matrix)")
-    raise ImageGenError(f"{url} isn't a supported image AI. Supported: Fooocus, ComfyUI, "
-                        "A1111/Forge (started with --api)")
+        b: Backend = A1111(url)
+    elif _ok(f"{url}/system_stats") is not None:
+        b = ComfyUI(url)
+    else:
+        cfg = _ok(f"{url}/config")
+        if cfg and b"Fooocus" in cfg:
+            b = Fooocus(url, performance)
+        elif cfg is None and _ok(url) is None:
+            raise ImageGenError(f"nothing is answering at {url} — start your image AI (e.g. from Stability Matrix)")
+        else:
+            raise ImageGenError(f"{url} isn't a supported image AI. Supported: Fooocus, ComfyUI, "
+                                "A1111/Forge (started with --api)")
+    b.model = model.strip()
+    return b
 
 
 # --- post-processing ------------------------------------------------------------------------
