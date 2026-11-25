@@ -43,6 +43,11 @@ generate = true
 background = "gradient"   # gradient | wallpaper (the theme's, dimmed) | solid
 text = ""                 # "" = the theme name
 
+# GNOME / GTK 4 (libadwaita) apps in the palette; flatpak = true also covers Flatpak apps
+[gtk]
+generate = true
+flatpak = false
+
 # The theme on the Plasma Login screen (installing asks for the admin password, only when it changed)
 [login_screen]
 generate = true

@@ -91,6 +91,8 @@ color scheme, Plasma style, Konsole scheme, global theme package, panel layout a
 - `[login_screen] generate = true` puts the theme (colors, Plasma style, icons, cursors, fonts) on the
   login screen (Plasma Login Manager, or SDDM with its Breeze theme); `background` wallpaper (the theme's; palette color without one) | color,
   `clock` true/false. Installing it asks for the admin password, so only enable it when asked.
+- `[gtk]` `generate` (default true) gives GNOME / GTK 4 (libadwaita) apps the palette; `flatpak = true` also
+  lets Flatpak apps read it (changes their permissions: only when asked).
 - `splash`: keep "org.kde.Breeze" unless asked. `[splash_screen] generate = true` (recommended) makes a
   splash in the palette: the theme name (or `text`) and an accent progress bar, `background` gradient |
   wallpaper (the theme's, dimmed — needs `wallpaper`) | solid.

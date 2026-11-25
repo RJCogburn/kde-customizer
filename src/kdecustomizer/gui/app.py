@@ -442,6 +442,17 @@ class Main(QMainWindow):
         self.konsole = QCheckBox("Matching Konsole color scheme")
         self.konsole.toggled.connect(self.changed)
         f.addRow(self.konsole)
+        self.g_generate = QCheckBox("Matching GNOME / GTK 4 apps")
+        self.g_generate.setToolTip("libadwaita apps ignore KDE color schemes; this gives them the palette "
+                                   "through ~/.config/gtk-4.0")
+        self.g_generate.toggled.connect(self.changed)
+        self.g_generate.toggled.connect(lambda on: self.g_flatpak.setEnabled(on))
+        f.addRow(self.g_generate)
+        self.g_flatpak = QCheckBox("Flatpak GNOME apps too")
+        self.g_flatpak.setToolTip("Gives Flatpak apps read-only access to ~/.config/gtk-4.0 "
+                                  "(flatpak override --user)")
+        self.g_flatpak.toggled.connect(self.changed)
+        f.addRow(self.g_flatpak)
 
         f = self._group("Cursors", v)
         self.c_generate = QCheckBox("Generate cursors from palette")
@@ -801,6 +812,9 @@ class Main(QMainWindow):
         self.p_opacity.setValue(round(t.plasma.opacity * 100))
         self._plasma_generate_toggled(t.plasma.generate)
         self.konsole.setChecked(t.konsole)
+        self.g_generate.setChecked(t.gtk.generate)
+        self.g_flatpak.setChecked(t.gtk.flatpak)
+        self.g_flatpak.setEnabled(t.gtk.generate)
         for k, w in self.deco.items():
             w.setText(getattr(t.decoration, k))
         d = t.decoration
@@ -853,6 +867,8 @@ class Main(QMainWindow):
         t.plasma.radius = self.p_radius.value()
         t.plasma.opacity = self.p_opacity.value() / 100
         t.konsole = self.konsole.isChecked()
+        t.gtk.generate = self.g_generate.isChecked()
+        t.gtk.flatpak = self.g_flatpak.isChecked()
         t.tweaks = self._tweaks_from_form()
         for k, w in self.deco.items():
             setattr(t.decoration, k, w.text().strip())

@@ -106,6 +106,12 @@ class CursorSet:
 
 
 @dataclass
+class Gtk:
+    generate: bool = True             # GTK 4 / libadwaita (GNOME) apps in the palette, via ~/.config/gtk-4.0
+    flatpak: bool = False             # also let Flatpak apps read it (flatpak override --user, read-only)
+
+
+@dataclass
 class LoginScreen:
     generate: bool = False            # put the theme on the Plasma Login screen (asks for the admin password once)
     background: str = "wallpaper"     # wallpaper (the theme's) | color (palette background)
@@ -152,6 +158,7 @@ class Theme:
     splash: str = "org.kde.Breeze"    # installed splash (ignored if splash_screen.generate)
     splash_screen: SplashScreen = field(default_factory=SplashScreen)
     login_screen: LoginScreen = field(default_factory=LoginScreen)
+    gtk: Gtk = field(default_factory=Gtk)
     wallpaper: str = ""               # path to image; copied into the package
     decoration: Decoration = field(default_factory=Decoration)
     fonts: Fonts = field(default_factory=Fonts)
@@ -227,6 +234,7 @@ def from_dict(data: dict[str, Any]) -> Theme:
         "widgets": lambda d: _build(Widgets, d),
         "splash_screen": lambda d: _build(SplashScreen, d),
         "login_screen": lambda d: _build(LoginScreen, d),
+        "gtk": lambda d: _build(Gtk, d),
         "panels": lambda lst: [_build(Panel, p) for p in lst],
     }
     for key, fn in sub.items():
@@ -306,7 +314,7 @@ def dumps(theme: Theme) -> str:
             continue
         else:
             out.append(f"{_key(k)} = {_val(v)}")
-    for name in ("palette", "plasma", "iconset", "cursorset", "widgets", "decoration", "splash_screen", "login_screen", "fonts"):
+    for name in ("palette", "plasma", "iconset", "cursorset", "widgets", "decoration", "splash_screen", "login_screen", "gtk", "fonts"):
         out.append(f"\n[{name}]")
         out += [f"{_key(k)} = {_val(v)}" for k, v in tables[name].items()]
     for p in d["panels"]:

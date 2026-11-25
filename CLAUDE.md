@@ -40,6 +40,15 @@ pinned black, grays slide body→outline by lightness, Breeze's colors map to pa
 Aliases stay relative symlinks. Only bases with `cursors_scalable/` work (`scalable_themes()`).
 Check with a contact sheet: parse the Xcursor images and paint them on dark + light backgrounds.
 
+## GTK 4 / libadwaita (`[gtk] generate`, on by default)
+`generators/gtk.py` → `build/<Slug>/gtk/kde-customizer.css`: libadwaita colors from `colors.scheme()`, written as CSS
+variables (`--window-bg-color`, libadwaita 1.6+) and named colors (`@define-color window_bg_color`, older runtimes).
+`install.sh` copies it to `~/.config/gtk-4.0/` and inserts `@import 'kde-customizer.css';` after the last `@import`
+in gtk.css (KDE's GTK integration owns gtk.css's `colors.css` import and rewrites colors.css, not gtk.css); themes
+with `generate = false` remove that line and file. `flatpak = true` adds `flatpak override --user
+--filesystem=xdg-config/gtk-4.0:ro`. Check with a real libadwaita window: `/usr/bin/python3` + gi Adw, a temp
+`XDG_CONFIG_HOME`, `Gtk.WidgetPaintable` → `render_texture` → PNG (no screenshot needed).
+
 ## Login screen (`[login_screen] generate = true`)
 Two greeters, picked at install time from `display-manager.service` (else whichever greeter user exists):
 - Plasma Login Manager (`plasmalogin`, Plasma 6.6+, this dev box): compiled QML greeter running as user

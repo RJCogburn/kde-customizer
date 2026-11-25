@@ -9,7 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from . import cursorset, iconset
-from .generators import aurorae, colors, konsole, kvantum, layout, lookandfeel, loginscreen, plasmastyle, splash
+from .generators import aurorae, colors, gtk, konsole, kvantum, layout, lookandfeel, loginscreen, plasmastyle, splash
 from .spec import Theme, save
 
 _FONT_KEYS = {  # Fonts field -> (file, group, key)
@@ -136,6 +136,10 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
             (out / "login" / name).write_text(text)
             (out / "login" / name).chmod(0o755)
 
+    if theme.gtk.generate:
+        (out / "gtk").mkdir()
+        (out / "gtk" / gtk.FILE).write_text(gtk.css(theme))
+
     if theme.konsole:
         (out / "konsole").mkdir()
         (out / "konsole" / f"{theme.slug}.colorscheme").write_text(konsole.colorscheme(theme))
@@ -166,6 +170,7 @@ def _write_install_script(theme: Theme, out: Path) -> None:
         "set -euo pipefail",
         'DIR="$(cd "$(dirname "$0")" && pwd)"',
         'DATA="${XDG_DATA_HOME:-$HOME/.local/share}"',
+        'CONF="${XDG_CONFIG_HOME:-$HOME/.config}"',
         'LAYOUT=0; LOGIN=1',
         'for a in "$@"; do case "$a" in --layout) LAYOUT=1 ;; --no-login) LOGIN=0 ;; esac; done',
         "",
@@ -207,7 +212,6 @@ def _write_install_script(theme: Theme, out: Path) -> None:
         name = theme.kvantum_name
         s += [
             'echo "==> app style (Kvantum)"',
-            'CONF="${XDG_CONFIG_HOME:-$HOME/.config}"',
             'mkdir -p "$CONF/Kvantum"',
             f'rm -rf "$CONF/Kvantum/{name}"',
             f'cp -r "$DIR/kvantum/{name}" "$CONF/Kvantum/"',
@@ -221,6 +225,7 @@ def _write_install_script(theme: Theme, out: Path) -> None:
             f'rm -rf "$DATA/aurorae/themes/{name}"',
             f'cp -r "$DIR/aurorae/{name}" "$DATA/aurorae/themes/"',
         ]
+    s += _gtk_lines(theme)
     if theme.wallpaper:
         s += ['echo "==> wallpaper"', f'mkdir -p "$DATA/wallpapers/{theme.slug}"',
               f'cp "$DIR"/wallpapers/* "$DATA/wallpapers/{theme.slug}/"']
@@ -317,3 +322,35 @@ def _login_lines(theme: Theme) -> list[str]:
         "  fi",
         "fi",
     ]
+
+
+def _gtk_lines(theme: Theme) -> list[str]:
+    """GTK 4 / libadwaita: our CSS imported from gtk-4.0/gtk.css — or, when off, our import removed again."""
+    imp = shlex.quote(gtk.IMPORT)
+    lines = [
+        'echo "==> GTK 4 / libadwaita apps"',
+        'G="$CONF/gtk-4.0/gtk.css"',
+    ]
+    if not theme.gtk.generate:
+        return lines + [
+            "# not part of this theme: undo a previous kde-customizer theme's colors",
+            f'if [[ -f "$G" ]] && grep -qxF {imp} "$G"; then grep -vxF {imp} "$G" > "$G.tmp" || true; '
+            'cat "$G.tmp" > "$G"; rm -f "$G.tmp"; fi',
+            f'rm -f "$CONF/gtk-4.0/{gtk.FILE}"',
+        ]
+    lines += [
+        'mkdir -p "$CONF/gtk-4.0"',
+        f'cp "$DIR/gtk/{gtk.FILE}" "$CONF/gtk-4.0/"',
+        'touch "$G"',
+        f'if ! grep -qxF {imp} "$G"; then',
+        "  # after the last @import (imports must come first; KDE's own colors.css import stays ahead of ours)",
+        f"  awk -v imp={imp} '{{ l[NR] = $0; if ($0 ~ /^[[:space:]]*@import/) last = NR }} "
+        "END { if (!last) print imp; for (i = 1; i <= NR; i++) { print l[i]; if (i == last) print imp } }' "
+        '"$G" > "$G.tmp"',
+        '  cat "$G.tmp" > "$G"; rm -f "$G.tmp"      # keeps gtk.css itself (it may be a symlink)',
+        "fi",
+    ]
+    if theme.gtk.flatpak:
+        lines += ["# Flatpak apps only see ~/.config/gtk-4.0 with this (read-only) permission",
+                  "command -v flatpak >/dev/null 2>&1 && flatpak override --user --filesystem=xdg-config/gtk-4.0:ro || true"]
+    return lines

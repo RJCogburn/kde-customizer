@@ -22,6 +22,7 @@ From about seven palette colors, one theme spec generates:
 - a **global theme** package (icons, cursors, app style, window decoration, splash)
 - a **panel layout**: position, size, floating or dock-style, and widget order
 - a matching **Konsole** color scheme and profile
+- matching **GNOME / GTK 4 apps** (libadwaita colors in `~/.config/gtk-4.0`; optionally for Flatpak apps too)
 - **fonts**, title-bar buttons and any raw KDE setting (`[tweaks]`)
 - a standalone **`install.sh`**, so a built theme can be shared and installed without this tool
 
