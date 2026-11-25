@@ -99,7 +99,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Plymouth, Xvfb
-        run: pacman -Syu --noconfirm --needed plymouth xorg-server-xvfb xorg-xwd imagemagick xdotool python ttf-dejavu
+        run: pacman -Syu --noconfirm --needed plymouth gtk3 xorg-server-xvfb xorg-xwd imagemagick xdotool python ttf-dejavu
       - uses: actions/checkout@v4
       - name: Run the boot splash
         run: |
@@ -132,6 +132,9 @@ jobs:
           sleep 1
           grep -iE "script|error" shots/plymouthd.log | grep -iv "no error" | tail -20 || true
           ! grep -iE "parse error|script error|syntax error" shots/plymouthd.log
+          # it really drew something: the X11 renderer opened, and every screenshot has more than one color
+          grep -q "renderers/x11.so" shots/plymouthd.log && ! grep -q 'Could not load module "/usr/lib/plymouth/renderers/x11.so"' shots/plymouthd.log
+          for f in shots/*.png; do n=$(identify -format %k "$f"); echo "$f: $n colors"; test "$n" -gt 1; done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
