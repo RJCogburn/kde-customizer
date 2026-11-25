@@ -8,9 +8,9 @@ from __future__ import annotations
 import datetime as _dt
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
-    QBrush, QColor, QFont, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap,
+    QBrush, QColor, QFont, QIcon, QImage, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap,
 )
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
@@ -91,12 +91,19 @@ _TRAY_ICONS = [("network-wireless", "network-wired"), ("audio-volume-high",), ("
 
 
 class Preview(QWidget):
+    launcherToggled = Signal(bool)
+
     def __init__(self):
         super().__init__()
         self.theme: Theme | None = None
         self.icons = IconCache()
         self._wp_path = ""
         self._wp = QPixmap()
+        self.launcher_open = False      # draw the Kickoff menu open over the desktop
+        self._launcher_rect: QRectF | None = None
+        self._kickoff: tuple[QRectF, str] | None = None   # launcher icon box + panel location (canvas coords)
+        self._xform = (0.0, 0.0, 1.0)   # widget -> canvas: offset x, offset y, scale
+        self.setToolTip("Click the app launcher in the panel to open its menu")
         self.setMinimumSize(480, 300)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
@@ -111,6 +118,21 @@ class Preview(QWidget):
     def sizeHint(self) -> QSize:
         return QSize(800, 500)
 
+    def set_launcher_open(self, on: bool) -> None:
+        if on != self.launcher_open:
+            self.launcher_open = on
+            self.launcherToggled.emit(on)
+            self.update()
+
+    def mousePressEvent(self, e) -> None:
+        ox, oy, k = self._xform
+        pt = QPointF((e.position().x() - ox) / k, (e.position().y() - oy) / k)
+        if self._kickoff and self._kickoff[0].contains(pt):
+            self.set_launcher_open(not self.launcher_open)
+        elif self.launcher_open and not (self._launcher_rect and self._launcher_rect.contains(pt)):
+            self.set_launcher_open(False)   # click outside closes it, like the real thing
+        super().mousePressEvent(e)
+
     # --- painting --------------------------------------------------------------
     def paintEvent(self, _):
         if not self.theme:
@@ -121,7 +143,12 @@ class Preview(QWidget):
             self.ansi = konsole_gen.ansi(t)
         except ValueError:      # half-typed color in the editor
             return
-        p = QPainter(self)
+        # Paint into an image (not the widget) so blurred Plasma surfaces can read what's behind them.
+        dpr = self.devicePixelRatioF()
+        canvas = QImage(max(1, round(self.width() * dpr)), max(1, round(self.height() * dpr)),
+                        QImage.Format_ARGB32_Premultiplied)
+        canvas.setDevicePixelRatio(dpr)
+        p = QPainter(canvas)
         p.setRenderHint(QPainter.Antialiasing)
         p.setRenderHint(QPainter.SmoothPixmapTransform)
         p.fillRect(self.rect(), self.palette().window())
@@ -130,6 +157,7 @@ class Preview(QWidget):
         ox, oy = (self.width() - W * scale) / 2, (self.height() - H * scale) / 2
         p.translate(ox, oy)
         p.scale(scale, scale)
+        self._xform = (ox, oy, scale)
         self.px = scale * self.devicePixelRatioF()  # for crisp icons
         clip = QPainterPath()
         clip.addRoundedRect(QRectF(0, 0, W, H), 10, 10)
@@ -139,11 +167,17 @@ class Preview(QWidget):
         area = self._usable_area()
         self._konsole(p, QRectF(area.x() + 90, area.y() + 60, 560, 330))
         self._app_window(p, QRectF(area.x() + 380, area.y() + 150, 700, 440))
+        self._kickoff = None
+        self._launcher_rect = None
         for panel in t.panels:
             self._panel(p, panel)
-        self._notification(p, area)
+        if self.launcher_open and self._kickoff:
+            self._launcher(p, *self._kickoff)
+        else:
+            self._notification(p, area)
         self._pointer(p, QPointF(area.x() + 760, area.y() + 470))
         p.end()
+        QPainter(self).drawImage(0, 0, canvas)
 
     def _pointer(self, p: QPainter, hotspot: QPointF) -> None:
         """The mouse pointer from the theme's cursors (24 px nominal), hotspot at `hotspot`."""
@@ -219,9 +253,34 @@ class Preview(QWidget):
         ps = self.theme.plasma
         return ps.radius if ps.generate else 8
 
+    def _blur_behind(self, p: QPainter, rect: QRectF, radius: float) -> None:
+        """What KWin's blur does under translucent Plasma surfaces: blur the already-painted pixels."""
+        dev = p.device()
+        if not isinstance(dev, QImage):
+            return
+        dpr = dev.devicePixelRatio()
+        src = p.worldTransform().mapRect(rect)
+        src = QRectF(src.x() * dpr, src.y() * dpr, src.width() * dpr, src.height() * dpr).toAlignedRect()
+        src = src.intersected(dev.rect())
+        if src.width() < 4 or src.height() < 4:
+            return
+        piece = dev.copy(src)
+        k = max(6, round(14 * dpr))           # downscale factor = blur radius
+        small = piece.scaled(max(1, src.width() // k), max(1, src.height() // k),
+                             Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+        blurred = small.scaled(src.width(), src.height(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+        path = QPainterPath()
+        path.addRoundedRect(rect, radius, radius)
+        p.save()
+        p.setClipPath(path, Qt.IntersectClip)
+        p.drawImage(rect, blurred)
+        p.restore()
+
     def _plasma_bg(self, p: QPainter, rect: QRectF, radius: float) -> None:
         """Plasma surface: Window color, translucent when the style blurs; shape from [plasma]."""
         ps = self.theme.plasma
+        if ps.blur:
+            self._blur_behind(p, rect, radius)
         if ps.generate:
             alpha, edge = ps.opacity, (0.18 if ps.outline else 0.0)
         else:
@@ -305,6 +364,12 @@ class Preview(QWidget):
             text = now.strftime("%H:%M") if vertical or cell < 40 else now.strftime("%H:%M\n%m/%d")
             p.drawText(box, Qt.AlignCenter, text)
         elif kind == "kickoff":
+            if self._kickoff is None:
+                self._kickoff = (QRectF(box), location)
+            if self.launcher_open and self._kickoff[0] == box:
+                p.setPen(Qt.NoPen)
+                p.setBrush(self.c("Colors:Selection", "BackgroundNormal", 0.3))
+                p.drawRoundedRect(box.adjusted(3, 3, -3, -3), 5, 5)
             self._icon(p, ("start-here-kde-plasma", "start-here-kde", "start-here"), box.center(), icon)
         elif kind == "showdesktop":
             self._icon(p, ("user-desktop", "desktop"), box.center(), int(icon * 0.7))
@@ -318,6 +383,118 @@ class Preview(QWidget):
             p.drawRect(QRectF(c.x() + 1, c.y() - s / 2, s, s))
         else:
             self._icon(p, ("application-x-plasma", "plasma", "preferences-desktop-plasma"), box.center(), icon)
+
+    # --- launcher (Kickoff) -------------------------------------------------------------
+    def _launcher(self, p: QPainter, anchor: QRectF, location: str) -> None:
+        """Plasma 6 Kickoff, opened from `anchor` (the launcher icon) on a panel at `location`."""
+        w, h, gap = 560.0, 500.0, 6.0
+        if location == "bottom":
+            x, y = anchor.left(), anchor.top() - gap - h
+        elif location == "top":
+            x, y = anchor.left(), anchor.bottom() + gap
+        elif location == "left":
+            x, y = anchor.right() + gap, anchor.top()
+        else:
+            x, y = anchor.left() - gap - w, anchor.top()
+        x = max(8.0, min(x, W - w - 8))
+        y = max(8.0, min(y, H - h - 8))
+        rect = QRectF(x, y, w, h)
+        self._launcher_rect = rect
+        radius = self._plasma_radius()
+        self._shadow(p, rect, radius, 0.55)
+        self._plasma_bg(p, rect, radius)
+
+        fg = self.c("Colors:Window", "ForegroundNormal")
+        dim = self.c("Colors:Window", "ForegroundInactive")
+        general = self.theme.fonts.general
+
+        # header: avatar, search field (PlasmoidHeading = Header colors)
+        head = QRectF(rect.x(), rect.y(), w, 62)
+        clip = QPainterPath()
+        clip.addRoundedRect(rect, radius, radius)
+        p.save()
+        p.setClipPath(clip, Qt.IntersectClip)
+        p.fillRect(head, self.c("Colors:Header", "BackgroundNormal", 0.55))
+        p.setPen(QPen(self.c("Colors:Window", "ForegroundNormal", 0.12), 1))
+        p.drawLine(head.bottomLeft(), head.bottomRight())
+        p.restore()
+        self._icon(p, ("user-identity", "im-user", "user"), QPointF(head.x() + 34, head.center().y()), 34)
+        search = QRectF(head.x() + 64, head.center().y() - 16, w - 64 - 52, 32)
+        wr = self.theme.widgets.radius if self.theme.widgets.generate else 4
+        p.setPen(QPen(self.c("Colors:View", "DecorationFocus"), 1.5))
+        p.setBrush(self.c("Colors:View", "BackgroundNormal"))
+        p.drawRoundedRect(search, wr, wr)
+        self._icon(p, ("search", "edit-find"), QPointF(search.x() + 16, search.center().y()), 16)
+        p.setPen(dim)
+        p.setFont(_font(general, 10))
+        p.drawText(search.adjusted(32, 0, 0, 0), Qt.AlignVCenter, "Search…")
+        self._icon(p, ("configure", "settings-configure"), QPointF(rect.right() - 26, head.center().y()), 18)
+
+        # sidebar: categories
+        body_top, foot_h = head.bottom() + 6, 48
+        side = QRectF(rect.x() + 8, body_top, 178, rect.bottom() - foot_h - body_top - 4)
+        cats = [("Favorites", ("bookmarks", "favorites")), ("All Applications", ("applications-all", "view-list-icons")),
+                ("Development", ("applications-development",)), ("Graphics", ("applications-graphics",)),
+                ("Internet", ("applications-internet",)), ("Multimedia", ("applications-multimedia",)),
+                ("Office", ("applications-office",)), ("Settings", ("preferences-system", "applications-system")),
+                ("System", ("applications-system",)), ("Utilities", ("applications-utilities",))]
+        row_h = min(34.0, side.height() / len(cats))
+        p.setFont(_font(general, 10))
+        for i, (name, icons) in enumerate(cats):
+            r = QRectF(side.x(), side.y() + i * row_h, side.width(), row_h)
+            if i == 0:   # current category: Plasma's highlight (selection tint + outline)
+                p.setPen(QPen(self.c("Colors:Selection", "BackgroundNormal", 0.8), 1))
+                p.setBrush(self.c("Colors:Selection", "BackgroundNormal", 0.25))
+                p.drawRoundedRect(r.adjusted(0, 1, 0, -1), 4, 4)
+            self._icon(p, icons, QPointF(r.x() + 18, r.center().y()), 20)
+            p.setPen(fg)
+            p.drawText(r.adjusted(36, 0, -4, 0), Qt.AlignVCenter, name)
+
+        # favorites grid
+        grid = QRectF(side.right() + 10, body_top + 4, rect.right() - side.right() - 18, side.height() - 4)
+        apps = [("Files", ("system-file-manager", "org.kde.dolphin")), ("Browser", ("internet-web-browser",)),
+                ("Terminal", ("utilities-terminal", "org.kde.konsole")), ("Settings", ("systemsettings", "preferences-system")),
+                ("Discover", ("plasmadiscover", "system-software-install")), ("Text Editor", ("accessories-text-editor", "kate")),
+                ("Documents", ("okular", "application-pdf")), ("Screenshot", ("spectacle", "applets-screenshooter")),
+                ("Archives", ("ark", "utilities-file-archiver")), ("Calculator", ("accessories-calculator", "kcalc")),
+                ("Music", ("elisa", "multimedia-audio-player")), ("Help", ("help-browser", "system-help"))]
+        cols, cell_w = 4, grid.width() / 4
+        cell_h = min(104.0, grid.height() / 3)
+        p.setFont(_font(general, 9))
+        for i, (label, icons) in enumerate(apps):
+            r = QRectF(grid.x() + (i % cols) * cell_w, grid.y() + (i // cols) * cell_h, cell_w, cell_h)
+            if i == 5:   # hovered item
+                p.setPen(QPen(self.c("Colors:Selection", "BackgroundNormal", 0.6), 1))
+                p.setBrush(self.c("Colors:Selection", "BackgroundNormal", 0.15))
+                p.drawRoundedRect(r.adjusted(4, 2, -4, -2), 4, 4)
+            self._icon(p, icons, QPointF(r.center().x(), r.y() + cell_h * 0.38), 48)
+            p.setPen(fg)
+            p.drawText(QRectF(r.x() + 2, r.y() + cell_h * 0.66, r.width() - 4, 20), Qt.AlignHCenter | Qt.AlignTop, label)
+
+        # footer: Applications / Places, power buttons
+        foot = QRectF(rect.x(), rect.bottom() - foot_h, w, foot_h)
+        p.save()
+        p.setClipPath(clip, Qt.IntersectClip)
+        p.fillRect(foot, self.c("Colors:Header", "BackgroundNormal", 0.35))
+        p.setPen(QPen(self.c("Colors:Window", "ForegroundNormal", 0.12), 1))
+        p.drawLine(foot.topLeft(), foot.topRight())
+        p.restore()
+        p.setFont(_font(general, 10))
+        x0 = foot.x() + 10
+        for i, (label, icons) in enumerate([("Applications", ("applications-all", "view-list-icons")),
+                                            ("Places", ("compass", "folder-open"))]):
+            tab = QRectF(x0, foot.y() + 8, 128, foot_h - 16)
+            if i == 0:
+                p.setPen(Qt.NoPen)
+                p.setBrush(self.c("Colors:Selection", "BackgroundNormal", 0.25))
+                p.drawRoundedRect(tab, 4, 4)
+            self._icon(p, icons, QPointF(tab.x() + 16, tab.center().y()), 18)
+            p.setPen(fg)
+            p.drawText(tab.adjusted(30, 0, 0, 0), Qt.AlignVCenter, label)
+            x0 += 134
+        for i, icons in enumerate([("system-shutdown",), ("system-reboot", "view-refresh"),
+                                   ("system-suspend", "system-suspend-hibernate")]):
+            self._icon(p, icons, QPointF(foot.right() - 24 - i * 38, foot.center().y()), 20)
 
     # --- windows -----------------------------------------------------------------
     def _shadow(self, p: QPainter, rect: QRectF, radius: float, strength: float) -> None:

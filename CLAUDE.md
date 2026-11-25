@@ -60,6 +60,10 @@ same functions the generators use, so never derive colors in the GUI. Icons come
 `IconCache` (temporarily switches `QIcon.themeName`). AI work runs in a QThread; connect worker signals to
 bound methods of a widget (lambdas would run on the worker thread). AI provider settings live in QSettings
 (`~/.config/kdecustomizer/kdec-gui.conf`).
+The preview paints into a QImage first, so translucent Plasma surfaces can blur what is already drawn behind them
+(`_blur_behind`, when `[plasma] blur`). Kickoff: `Preview._launcher`, anchored to the first panel's launcher icon
+(click it or the "Launcher menu open" box). Tweaks tab = a File/Group/Key/Value table ↔ `theme.tweaks`
+(`TWEAK_PRESETS` adds common rows; values parsed to bool/int/float/str).
 Offscreen screenshots for checking UI changes: `QT_QPA_PLATFORM=offscreen`, `w.grab().save(...)`.
 
 ## Window decoration (`[decoration] generate = true`)
@@ -125,7 +129,7 @@ Check shape changes by tiling the pieces with `QSvgRenderer.render(p, id, rect)`
 and deletes `~/.cache/plasma_theme_<Slug>*` so re-installs pick up new colors. `Theme.plasma_style_name` is what LnF sets.
 
 ## Roadmap (not built yet)
-1. GUI: tweaks editor; preview of the Kickoff menu / dialogs.
+1. GUI: previews of more Plasma popups (system tray, calendar) and app dialogs.
 
 ## Packaging / releases
 `packaging/appimage/build.sh` (python-appimage -> `trim-runtime.sh` -> AppImage; leaves `build/appdir`) then

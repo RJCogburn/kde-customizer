@@ -11,8 +11,8 @@ from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QColorDialog, QComboBox, QDockWidget, QFileDialog,
     QFontDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow,
-    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QSplitter, QTabWidget,
-    QToolBar, QVBoxLayout, QWidget,
+    QHeaderView, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QSplitter, QTabWidget,
+    QTableWidget, QTableWidgetItem, QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .. import build as builder
@@ -114,6 +114,36 @@ class FontField(QWidget):
             self.edit.setText(f"{f.family()},{f.pointSize()}")
 
 
+# "Add common" tweaks: (menu label, [(file, group, key, value)])
+TWEAK_PRESETS = [
+    ("Wobbly windows", [("kwinrc", "Plugins", "wobblywindowsEnabled", True)]),
+    ("Magic lamp minimize", [("kwinrc", "Plugins", "magiclampEnabled", True),
+                             ("kwinrc", "Plugins", "squashEnabled", False)]),
+    ("Dim inactive windows", [("kwinrc", "Plugins", "diminactiveEnabled", True)]),
+    ("Shake cursor to find it", [("kwinrc", "Plugins", "shakecursorEnabled", True)]),
+    ("Stronger blur", [("kwinrc", "Plugins", "blurEnabled", True), ("kwinrc", "Effect-blur", "BlurStrength", 10)]),
+    ("Faster animations", [("kdeglobals", "KDE", "AnimationDurationFactor", 0.5)]),
+    ("Single click opens files", [("kdeglobals", "KDE", "SingleClick", True)]),
+]
+
+
+def _tweak_text(v) -> str:
+    return ("true" if v else "false") if isinstance(v, bool) else str(v)
+
+
+def _tweak_value(text: str):
+    """Table text -> TOML value: true/false, int, float, else string."""
+    low = text.lower()
+    if low in ("true", "false"):
+        return low == "true"
+    for cast in (int, float):
+        try:
+            return cast(text)
+        except ValueError:
+            pass
+    return text
+
+
 def combo(items: list[str]) -> QComboBox:
     c = QComboBox()
     c.setEditable(True)
@@ -154,6 +184,7 @@ class Main(QMainWindow):
         self.tabs.addTab(scroll(self.icons_tab), "Icons")
         self.tabs.addTab(self._panels_tab(), "Panels")
         self.tabs.addTab(self._fonts_tab(), "Fonts")
+        self.tabs.addTab(self._tweaks_tab(), "Tweaks")
 
         self.ai = AIPanel(lambda: self.from_form())
         self.ai.theme_ready.connect(self._ai_theme)
@@ -170,9 +201,23 @@ class Main(QMainWindow):
         lv.addWidget(self.tabs, 1)
         left.setMinimumWidth(380)
 
+        right = QWidget()
+        rv = QVBoxLayout(right)
+        rv.setContentsMargins(6, 4, 0, 0)
+        rv.setSpacing(2)
+        bar = QHBoxLayout()
+        self.show_launcher = QCheckBox("Launcher menu open")
+        self.show_launcher.setToolTip("Preview the app launcher (you can also click its icon in the panel)")
+        self.show_launcher.toggled.connect(self.preview.set_launcher_open)
+        self.preview.launcherToggled.connect(self.show_launcher.setChecked)
+        bar.addStretch()
+        bar.addWidget(self.show_launcher)
+        rv.addLayout(bar)
+        rv.addWidget(self.preview, 1)
+
         split = QSplitter()
         split.addWidget(left)
-        split.addWidget(self.preview)
+        split.addWidget(right)
         split.setStretchFactor(1, 1)
         split.setSizes([420, 860])
         split.setChildrenCollapsible(False)
@@ -556,6 +601,84 @@ class Main(QMainWindow):
         v.addStretch()
         return scroll(page)
 
+    def _tweaks_tab(self) -> QWidget:
+        page = QWidget()
+        v = QVBoxLayout(page)
+        note = QLabel("Any KDE setting, written with kwriteconfig6 when the theme is installed. "
+                      "Nested groups use “/”, e.g. Effect-blur or Containments/1.")
+        note.setWordWrap(True)
+        note.setStyleSheet("color: palette(placeholder-text)")
+        v.addWidget(note)
+        self.tweaks = QTableWidget(0, 4)
+        self.tweaks.setHorizontalHeaderLabels(["File", "Group", "Key", "Value"])
+        self.tweaks.verticalHeader().hide()
+        h = self.tweaks.horizontalHeader()
+        for col in range(3):
+            h.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        h.setSectionResizeMode(3, QHeaderView.Stretch)
+        self.tweaks.itemChanged.connect(self.changed)
+        v.addWidget(self.tweaks, 1)
+        row = QHBoxLayout()
+        common = QToolButton(text="Add common", icon=QIcon.fromTheme("list-add"),
+                             toolButtonStyle=Qt.ToolButtonTextBesideIcon, popupMode=QToolButton.InstantPopup)
+        menu = QMenu(common)
+        for label, entries in TWEAK_PRESETS:
+            menu.addAction(label, lambda e=entries: self._add_tweaks(e))
+        common.setMenu(menu)
+        add = QPushButton(QIcon.fromTheme("list-add"), "Add row")
+        add.clicked.connect(lambda: self._add_tweaks([("kwinrc", "", "", "")], edit=True))
+        rem = QPushButton(QIcon.fromTheme("list-remove"), "Remove")
+        rem.clicked.connect(self._remove_tweaks)
+        row.addWidget(common)
+        row.addWidget(add)
+        row.addWidget(rem)
+        row.addStretch()
+        v.addLayout(row)
+        return page
+
+    def _add_tweaks(self, entries, edit: bool = False) -> None:
+        """Append rows; an existing file/group/key gets its value replaced instead."""
+        self.tweaks.blockSignals(True)
+        for f, g, k, val in entries:
+            r = next((i for i in range(self.tweaks.rowCount()) if k and
+                      [self._cell(i, c) for c in range(3)] == [f, g, k]), None)
+            if r is None:
+                r = self.tweaks.rowCount()
+                self.tweaks.insertRow(r)
+            for c, text in enumerate((f, g, k, _tweak_text(val))):
+                self.tweaks.setItem(r, c, QTableWidgetItem(text))
+        self.tweaks.blockSignals(False)
+        if edit:
+            self.tweaks.setCurrentCell(self.tweaks.rowCount() - 1, 1)
+            self.tweaks.editItem(self.tweaks.currentItem())
+        self.changed()
+
+    def _remove_tweaks(self) -> None:
+        rows = sorted({i.row() for i in self.tweaks.selectedIndexes()}, reverse=True)
+        for r in rows:
+            self.tweaks.removeRow(r)
+        if rows:
+            self.changed()
+
+    def _cell(self, r: int, c: int) -> str:
+        it = self.tweaks.item(r, c)
+        return it.text().strip() if it else ""
+
+    def _tweaks_to_form(self, tweaks: dict) -> None:
+        self.tweaks.blockSignals(True)
+        self.tweaks.setRowCount(0)
+        self.tweaks.blockSignals(False)
+        self._add_tweaks([(f, g, k, v) for f, groups in tweaks.items()
+                          for g, kv in groups.items() for k, v in kv.items()])
+
+    def _tweaks_from_form(self) -> dict:
+        out: dict = {}
+        for r in range(self.tweaks.rowCount()):
+            f, g, k, val = (self._cell(r, c) for c in range(4))
+            if f and g and k:                      # half-filled rows are ignored until complete
+                out.setdefault(f, {}).setdefault(g, {})[k] = _tweak_value(val)
+        return out
+
     # --- panels editing (writes straight into self.theme.panels) ----------------------
     def _panel_label(self, p: spec.Panel) -> str:
         return f"{p.location.title()} panel · {p.height}px{' · floating' if p.floating else ''}"
@@ -668,6 +791,7 @@ class Main(QMainWindow):
         for k, ff in self.fonts.items():
             ff.edit.setText(getattr(t.fonts, k))
         self._fill_panel_list()
+        self._tweaks_to_form(t.tweaks)
         self.icons_tab.load(t)
         self.text["icons"].setEnabled(not t.iconset.generate)
         self._loading = False
@@ -706,6 +830,7 @@ class Main(QMainWindow):
         t.plasma.radius = self.p_radius.value()
         t.plasma.opacity = self.p_opacity.value() / 100
         t.konsole = self.konsole.isChecked()
+        t.tweaks = self._tweaks_from_form()
         for k, w in self.deco.items():
             setattr(t.decoration, k, w.text().strip())
         d = t.decoration
