@@ -94,8 +94,11 @@ color scheme, Plasma style, Konsole scheme, global theme package, panel layout a
 - `[boot_splash] generate = true` makes a Plymouth boot splash (theme name + accent progress bar, also the
   disk-unlock password prompt), `background` gradient | solid, `text` ("" = the theme name). Installing asks for
   the admin password and rebuilds the initramfs, so only enable it when asked.
-- `[apps]` kitty / alacritty / wezterm / ghostty / vscode (all true by default): matching terminal and editor
-  themes from the same colors, applied only where the app is installed. Leave them unless asked.
+- `[apps]` kitty / alacritty / wezterm / ghostty / vscode / firefox / thunderbird (all true by default): matching
+  terminal, editor, browser and mail themes from the same colors, applied only where the app is installed.
+  Leave them unless asked.
+- `[light_dark] auto = true` also builds the opposite (light or dark) version from the same hues and lets Plasma
+  switch between the two at sunrise/sunset. Only when asked for day/night or light/dark switching.
 - `[gtk]` `generate` (default true) gives GNOME / GTK 4 (libadwaita) apps the palette; `flatpak = true` also
   lets Flatpak apps read it (changes their permissions: only when asked).
 - `splash`: keep "org.kde.Breeze" unless asked. `[splash_screen] generate = true` (recommended) makes a

@@ -140,6 +140,23 @@ TWEAK_PRESETS = [
     ("Desktop", "Night Light on", [("kwinrc", "NightColor", "Active", True)]),
     ("Desktop", "Shorter notifications (3 s)", [("plasmanotifyrc", "Notifications", "PopupTimeout", 3000)]),
     ("Desktop", "Lock screen after 10 minutes", [("kscreenlockerrc", "Daemon", "Timeout", 10)]),
+    ("Effects", "Glide windows open/closed", [("kwinrc", "Plugins", "glideEnabled", True),
+                                              ("kwinrc", "Plugins", "scaleEnabled", False)]),
+    ("Effects", "Fade between desktops", [("kwinrc", "Plugins", "fadedesktopEnabled", True),
+                                          ("kwinrc", "Plugins", "slideEnabled", False)]),
+    ("Effects", "Show mouse clicks", [("kwinrc", "Plugins", "mouseclickEnabled", True)]),
+    ("Effects", "Sheet-style dialogs", [("kwinrc", "Plugins", "sheetEnabled", True),
+                                        ("kwinrc", "Plugins", "dialogparentEnabled", True)]),
+    ("Windows", "Open new windows centered", [("kwinrc", "Windows", "Placement", "Centered")]),
+    ("Windows", "No title bars on maximized windows", [("kwinrc", "Windows", "BorderlessMaximizedWindows", True)]),
+    ("Windows", "No window borders", [("kwinrc", "org.kde.kdecoration2", "BorderSize", "None"),
+                                      ("kwinrc", "org.kde.kdecoration2", "BorderSizeAuto", False)]),
+    ("Windows", "Thumbnail grid Alt+Tab", [("kwinrc", "TabBox", "LayoutName", "thumbnail_grid")]),
+    ("Windows", "4 virtual desktops (2x2)", [("kwinrc", "Desktops", "Number", 4), ("kwinrc", "Desktops", "Rows", 2)]),
+    ("Desktop", "Night Light warmer (3500 K)", [("kwinrc", "NightColor", "Active", True),
+                                                ("kwinrc", "NightColor", "NightTemperature", 3500)]),
+    ("Desktop", "Start with an empty session", [("ksmserverrc", "General", "loginMode", "emptySession")]),
+    ("Desktop", "Scrollbar click jumps to the spot", [("kdeglobals", "KDE", "ScrollbarLeftClickNavigatesByPage", False)]),
 ]
 
 
@@ -297,6 +314,8 @@ class Main(QMainWindow):
         f = apply.font()
         f.setBold(True)
         apply.setFont(f)
+        act("Undo Apply", "edit-undo", self.revert, None,
+            "Put the desktop back the way it was before the last Apply (every install takes a restore point)")
 
     def _log_dock(self) -> None:
         self.log = QPlainTextEdit(readOnly=True)
@@ -309,8 +328,13 @@ class Main(QMainWindow):
         self.proc = QProcess(self)
         self.proc.setProcessChannelMode(QProcess.MergedChannels)
         self.proc.readyRead.connect(lambda: self.say(bytes(self.proc.readAll()).decode(errors="replace").rstrip()))
-        self.proc.finished.connect(lambda code, _s: self.statusBar().showMessage(
-            "Applied." if code == 0 else f"install.sh failed (exit {code}) — see Output", 6000))
+        self._proc_done = None      # what to do when the running script ends: fn(exit code) -> status text
+        self.proc.finished.connect(self._proc_finished)
+
+    def _proc_finished(self, code: int, _status=None) -> None:
+        done, self._proc_done = self._proc_done, None
+        text = done(code) if done else ("Done." if code == 0 else f"failed (exit {code}) — see Output")
+        self.statusBar().showMessage(text, 6000)
 
     def say(self, text: str) -> None:
         self.dock.show()
@@ -389,8 +413,13 @@ class Main(QMainWindow):
         browse = QPushButton(QIcon.fromTheme("document-open"), "")
         browse.setToolTip("Choose image…")
         browse.clicked.connect(self.pick_wallpaper)
+        self.wp_make = QPushButton(QIcon.fromTheme("games-config-background"), "Make…")
+        self.wp_make.setToolTip("Render a wallpaper in this palette with your local image AI (the one set up "
+                                "in the Icons tab: Fooocus, ComfyUI or A1111/Forge)")
+        self.wp_make.clicked.connect(self.make_wallpaper)
         row.addWidget(self.text["wallpaper"])
         row.addWidget(browse)
+        row.addWidget(self.wp_make)
         f.addRow("Image", row)
 
         f = self._group("Plasma style", v)
@@ -455,6 +484,12 @@ class Main(QMainWindow):
                                   "(flatpak override --user)")
         self.g_flatpak.toggled.connect(self.changed)
         f.addRow(self.g_flatpak)
+        self.light_dark = QCheckBox("Light and dark versions, switched by time of day")
+        self.light_dark.setToolTip("Also builds the opposite version (same hues) and lets Plasma switch between "
+                                   "the two at sunrise and sunset (Night Light's schedule). GTK apps, terminals "
+                                   "and Konsole follow; apps use the fallback style instead of Kvantum.")
+        self.light_dark.toggled.connect(self.changed)
+        f.addRow(self.light_dark)
 
         f = self._group("Other terminals and editors", v)
         note = QLabel("Matching colors for these apps, when they are installed.")
@@ -469,6 +504,9 @@ class Main(QMainWindow):
             ("wezterm", "WezTerm", "Installs a color scheme; select it in wezterm.lua"),
             ("ghostty", "Ghostty", "Theme file + `theme =` at the end of Ghostty's config"),
             ("vscode", "VS Code / VSCodium", "Installs a theme extension; pick it in Preferences > Color Theme"),
+            ("firefox", "Firefox / LibreWolf", "Toolbar, tabs, address bar and menus via each profile's "
+                                               "userChrome.css; restart the browser to see it"),
+            ("thunderbird", "Thunderbird", "Via each profile's userChrome.css; restart Thunderbird to see it"),
         ]:
             c = QCheckBox(label)
             c.setToolTip(tip)
@@ -859,6 +897,7 @@ class Main(QMainWindow):
             c.setChecked(getattr(t.apps, k))
         self.g_flatpak.setChecked(t.gtk.flatpak)
         self.g_flatpak.setEnabled(t.gtk.generate)
+        self.light_dark.setChecked(t.light_dark.auto)
         for k, w in self.deco.items():
             w.setText(getattr(t.decoration, k))
         d = t.decoration
@@ -918,6 +957,7 @@ class Main(QMainWindow):
         for k, c in self.apps.items():
             setattr(t.apps, k, c.isChecked())
         t.gtk.flatpak = self.g_flatpak.isChecked()
+        t.light_dark.auto = self.light_dark.isChecked()
         t.tweaks = self._tweaks_from_form()
         for k, w in self.deco.items():
             setattr(t.decoration, k, w.text().strip())
@@ -1159,6 +1199,52 @@ class Main(QMainWindow):
         if f:
             self.text["wallpaper"].setText(f)
 
+    def make_wallpaper(self) -> None:
+        from PySide6.QtCore import QThread
+        from PySide6.QtWidgets import QInputDialog
+        from .. import wallpaper
+        from .icons_tab import _Worker
+        if getattr(self, "_wp_thread", None):
+            return
+        idea, ok = QInputDialog.getText(self, "Make wallpaper", "What should it show? (it gets this theme's "
+                                        "colors)", text=self.theme.description)
+        if not ok or not self._ensure_saved():
+            return
+        theme = copy.deepcopy(self.from_form())
+        it = self.icons_tab
+        url, perf, model, folder = it.url.text().strip(), it.perf.currentText().strip(), it._model(), self.path.parent
+
+        def job(log):
+            return [str(wallpaper.generate(theme, folder, url, idea=idea, performance=perf, model=model, log=log))]
+        self.wp_make.setEnabled(False)
+        self._wp_thread = QThread(self)
+        self._wp_worker = _Worker(job)
+        self._wp_worker.moveToThread(self._wp_thread)
+        self._wp_thread.started.connect(self._wp_worker.run)
+        # bound methods so Qt runs these on the GUI thread
+        self._wp_worker.progress.connect(self._wp_progress)
+        self._wp_worker.done.connect(self._wp_done)
+        self._wp_worker.failed.connect(self._wp_failed)
+        self._wp_thread.start()
+
+    def _wp_progress(self, text: str) -> None:
+        self.statusBar().showMessage(text[:1].upper() + text[1:])
+
+    def _wp_stop(self) -> None:
+        self.wp_make.setEnabled(True)
+        self._wp_thread.quit()
+        self._wp_thread.wait()
+        self._wp_thread = None
+
+    def _wp_done(self, paths: list) -> None:
+        self._wp_stop()
+        self.text["wallpaper"].setText(paths[0])
+        self.statusBar().showMessage("Wallpaper made. Save, then Apply to use it.", 8000)
+
+    def _wp_failed(self, msg: str) -> None:
+        self._wp_stop()
+        QMessageBox.warning(self, "Make wallpaper", msg)
+
     def export(self) -> None:
         if not self.path and not self.save():
             return
@@ -1184,7 +1270,35 @@ class Main(QMainWindow):
         out = self.do_build()
         if out:
             self.say(f"$ {out / 'install.sh'}")
+            self._proc_done = lambda code: "Applied." if code == 0 else f"install.sh failed (exit {code}) — see Output"
             self.proc.start(str(out / "install.sh"), ["--layout"] if self.with_layout.isChecked() else [])
+
+    def revert(self) -> None:
+        from .. import restorepoints
+        if self.proc.state() != QProcess.NotRunning:
+            return
+        pts = restorepoints.points()
+        if not pts:
+            QMessageBox.information(self, "Undo Apply", "There is nothing to undo yet: each Apply saves the desktop "
+                                    "as it was first, and that's what Undo Apply restores.")
+            return
+        pt = pts[0]
+        r = QMessageBox.question(self, "Undo Apply",
+                                 f"Restore the desktop as it was {pt.label()}?\n\n"
+                                 "Colors, styles, icons, cursors, fonts, wallpaper, tweaks and terminal/GTK colors "
+                                 "go back. The login screen and boot splash stay as they are.")
+        if r != QMessageBox.Yes:
+            return
+
+        def done(code: int) -> str:
+            if code:
+                return f"restore failed (exit {code}) — see Output"
+            import shutil
+            shutil.rmtree(pt.path, ignore_errors=True)      # the next Undo goes one step further back
+            return "Desktop restored."
+        self.say(f"$ bash {pt.script}")
+        self._proc_done = done
+        self.proc.start("bash", [str(pt.script)])
 
     def closeEvent(self, e) -> None:
         if self._confirm_discard():

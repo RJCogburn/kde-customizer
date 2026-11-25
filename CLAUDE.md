@@ -9,6 +9,7 @@ Target system: Plasma 6.8, Qt 6, Python 3.11+ (dev box runs 3.14, CachyOS).
 - `generators/` — one module per output artifact, each a pure function `Theme -> str`. No I/O.
 - `build.py` — writes everything to `build/<Slug>/` **plus a standalone `install.sh`**. Installing/applying always goes
   through that script (CLI and GUI both run it), so built themes are shareable without this tool.
+- `spec.fix_id()`: a named theme with a placeholder id (`org.kdecustomizer.untitled`) gets `id_for(name)` on load/save.
 - `cli.py` (`kdec`) and `gui/app.py` (`kdec-gui`, PySide6) are thin front ends — keep logic in core modules.
 - `snapshot.py` — `kdec snapshot` / GUI "From Desktop": reads the live config (KConfig cascade: `$XDG_CONFIG_DIRS`
   incl. `~/.config/kdedefaults` under `~/.config`) into a Theme. `surface` = `[Colors:Window] BackgroundAlternate`
@@ -163,6 +164,8 @@ kdec export examples/midnight.toml [out.tar.gz]  # shareable archive: build + wa
 kdec layout examples/midnight.toml         # live panel/wallpaper script via plasmashell evaluateScript
 kdec-gui examples/midnight.toml
 kdec check mytheme.toml                    # contrast + installed-theme warnings
+kdec revert [--list] [N]                   # undo the last install (restore points)
+kdec wallpaper mytheme.toml "idea"         # wallpaper in the palette via the local image AI
 QT_QPA_PLATFORM=offscreen pytest -q        # test suite (pip install -e '.[gui,test]')
 kdec ai "warm autumn, dock panel" [--from mytheme.toml] [--provider claude-code(default)|claude|openai|gemini|openrouter|ollama|lmstudio --model M]
 kdec ai "..." --prompt-only                # prompt to paste into any chat AI
@@ -183,8 +186,39 @@ FrameSvg only reads each element's bounding size, so pieces sit side by side on 
 Check shape changes by tiling the pieces with `QSvgRenderer.render(p, id, rect)` offscreen. `install.sh` copies it to `$DATA/plasma/desktoptheme/`
 and deletes `~/.cache/plasma_theme_<Slug>*` so re-installs pick up new colors. `Theme.plasma_style_name` is what LnF sets.
 
+## Restore points / `kdec revert`
+`generators/restore.py` → `build/<Slug>/restore-point.sh`, run first by install.sh: writes
+`$XDG_STATE_HOME/kde-customizer/restore/<time>-<Slug>/restore.sh` (newest 10 kept) = previous value of every key in
+`restore.keys()` (BASE_KEYS + all_tweaks; read with `XDG_CONFIG_DIRS=/nonexistent` = user file only, unset →
+`--delete`), a copy of `~/.config/kdedefaults/`, plasma-apply-* for color scheme/cursors/Plasma style/icons, the
+wallpaper (plasmashell evaluateScript), copies of FILES (GTK, kitty, Ghostty, Alacritty) + Mozilla profiles, and
+with `--layout` the appletsrc (plasmashell restarted). `restorepoints.py` lists/runs them; a used one is deleted
+(next revert goes further back). GUI: "Undo Apply". Test with stubs for plasma-apply-*/qdbus6 on PATH.
+
+## Light/dark (`[light_dark] auto`)
+`variant.py`: `opposite()` flips lightness (same hues; accent/status moved until readable), name "<Name> Light|Dark",
+icon base swapped to its pair if installed. Built into `build/<Slug>/variant/<VSlug>/` (only the parts that switch);
+install.sh installs its color scheme/styles/LnF without applying, sets kdeglobals `[KDE] AutomaticLookAndFeel`,
+`DefaultLight/DarkLookAndFeel` (Plasma switches on Night Light's schedule). Kvantum isn't switched (fallback style).
+`generators/lightdark.py`: user unit `kdec-follow.path` (PathChanged on kdeglobals — fires on KConfig's atomic save)
+runs follow.sh, which copies `$DATA/kde-customizer/follow/<LnF id>/` files over GTK/kitty/Alacritty/Firefox CSS,
+rewrites Ghostty's block and Konsole's DefaultProfile. Themes without auto turn AutomaticLookAndFeel off.
+
+## Firefox / Thunderbird (`[apps] firefox/thunderbird`)
+`generators/mozilla.py`: `chrome/kde-customizer.css` imported from each profile's userChrome.css (profiles.ini under
+`ROOTS`: ~/.mozilla, ~/.config/mozilla (Firefox 147+), Flatpak, LibreWolf, Thunderbird) + user.js
+`toolkit.legacyUserProfileCustomizations.stylesheets`. Variables are `!important` on :root (beats add-on themes);
+both the current names (`--toolbar-background-color`, `--toolbox-background-color`, from omni.ja's
+design-system tokens) and older ones are set. Check in a real window: `dbus-run-session -- kwin_wayland --virtual
+--no-lockscreen --exit-with-session script` (firefox --no-remote --profile <tmp>, then `spectacle -b -n -f -o`).
+
+## Wallpaper (`kdec wallpaper`)
+`wallpaper.py`: prompt from the palette (`describe()` = color words), rendered at the SDXL size nearest the screen
+(`Backend.size`; Fooocus via `closest_ratio()` on "Aspect Ratios"), scaled/cropped to `screen_size()` (kscreen-doctor),
+saved as `<spec dir>/<slug>-wallpaper-<seed>.jpg`. GUI: "Make…" on the Desktop tab (uses the Icons tab's image AI).
+
 ## Roadmap
-Everything planned is built. Ideas: SDDM themes for distros without Plasma Login; more tweak presets.
+Everything planned is built. Ideas: SDDM themes for distros without Plasma Login.
 
 ## Packaging / releases
 `packaging/appimage/build.sh` (python-appimage -> `trim-runtime.sh` -> AppImage; leaves `build/appdir`) then

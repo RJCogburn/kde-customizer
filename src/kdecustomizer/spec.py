@@ -113,6 +113,14 @@ class Apps:
     wezterm: bool = True              # installs a color scheme; select it in wezterm.lua (config.color_scheme)
     ghostty: bool = True
     vscode: bool = True               # VS Code / VSCodium / Code-OSS extension; pick it in Color Theme
+    firefox: bool = True              # Firefox / LibreWolf: userChrome.css import (restart the browser to see it)
+    thunderbird: bool = True          # Thunderbird: userChrome.css import
+
+
+@dataclass
+class LightDark:
+    auto: bool = False                # also build the opposite (light/dark) version from this palette and let Plasma
+                                      # switch between the two by time of day (Night Light's sunrise/sunset schedule)
 
 
 @dataclass
@@ -183,6 +191,7 @@ class Theme:
     gtk: Gtk = field(default_factory=Gtk)
     boot_splash: BootSplash = field(default_factory=BootSplash)
     apps: Apps = field(default_factory=Apps)
+    light_dark: LightDark = field(default_factory=LightDark)
     wallpaper: str = ""               # path to image; copied into the package
     decoration: Decoration = field(default_factory=Decoration)
     fonts: Fonts = field(default_factory=Fonts)
@@ -284,6 +293,7 @@ def from_dict(data: dict[str, Any]) -> Theme:
         "gtk": lambda d: _build(Gtk, d),
         "boot_splash": lambda d: _build(BootSplash, d),
         "apps": lambda d: _build(Apps, d),
+        "light_dark": lambda d: _build(LightDark, d),
         "panels": lambda lst: [_build(Panel, p) for p in lst],
     }
     for key, fn in sub.items():
@@ -336,7 +346,7 @@ def load(path: str | Path) -> Theme:
     for c in asdict(theme.palette).values():
         if c:
             color.parse(c)  # validate early
-    return theme
+    return fix_id(theme)
 
 
 # --- minimal TOML writer (stdlib has no tomllib.dump) -------------------------
@@ -367,7 +377,7 @@ def dumps(theme: Theme) -> str:
             continue
         else:
             out.append(f"{_key(k)} = {_val(v)}")
-    for name in ("palette", "plasma", "iconset", "cursorset", "widgets", "decoration", "splash_screen", "login_screen", "boot_splash", "gtk", "apps", "fonts"):
+    for name in ("palette", "plasma", "iconset", "cursorset", "widgets", "decoration", "splash_screen", "login_screen", "boot_splash", "gtk", "apps", "light_dark", "fonts"):
         out.append(f"\n[{name}]")
         out += [f"{_key(k)} = {_val(v)}" for k, v in tables[name].items()]
     for p in d["panels"]:
@@ -381,4 +391,13 @@ def dumps(theme: Theme) -> str:
 
 
 def save(theme: Theme, path: str | Path) -> None:
+    fix_id(theme)
     Path(path).write_text(dumps(theme))
+
+
+def fix_id(theme: Theme) -> Theme:
+    """A named theme still carrying a placeholder id (`org.kdecustomizer.untitled`) gets one from its name, so two
+    such themes don't install over each other's Look-and-Feel package."""
+    if is_placeholder_id(theme.id) and not is_placeholder_name(theme.name):
+        theme.id = id_for(theme.name)
+    return theme

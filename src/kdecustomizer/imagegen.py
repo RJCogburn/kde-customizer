@@ -51,6 +51,7 @@ def _ok(url: str) -> bytes | None:
 class Backend:
     name = "?"
     model = ""            # checkpoint to render with ("" = the image AI's own default; "auto" = pick_model())
+    size = (1024, 1024)   # render size (SDXL is trained near 1 megapixel: wallpapers use 1344x768 and upscale)
 
     def __init__(self, url: str):
         self.url = url.rstrip("/")
@@ -81,6 +82,21 @@ _BAD = ("inpaint", "refiner", "pony", "anime", "animagine", "illustrious", "noob
         "turbo", "hyper", "lcm", "sd15", "sd1.5", "v1-5", "1.5")
 
 
+def closest_ratio(choices: list[str], size: tuple[int, int]) -> str | None:
+    """Fooocus' aspect-ratio choice ("1344×768 <span>…") nearest to `size`'s shape (exact size first)."""
+    want = size[0] / size[1]
+    best = None
+    for ch in choices:
+        m = re.match(r"\s*(\d+)\s*[×x*]\s*(\d+)", ch)
+        if not m:
+            continue
+        w, h = int(m[1]), int(m[2])
+        key = ((w, h) != tuple(size), abs(w / h - want), -w * h)
+        if best is None or key < best[0]:
+            best = (key, ch)
+    return best[1] if best else None
+
+
 def pick_model(names: list[str]) -> str | None:
     """Best checkpoint for clean, object-on-white icon renders, by name; None if nothing fits."""
     best, score = None, 0
@@ -105,7 +121,7 @@ class A1111(Backend):
             return []
 
     def generate(self, prompt, negative, seed):
-        body = {"prompt": prompt, "negative_prompt": negative, "seed": seed, "width": 1024, "height": 1024,
+        body = {"prompt": prompt, "negative_prompt": negative, "seed": seed, "width": self.size[0], "height": self.size[1],
                 "steps": 25, "cfg_scale": 6, "batch_size": 1, "n_iter": 1}
         if (m := self.chosen_model()):
             body["override_settings"] = {"sd_model_checkpoint": m}       # just for this request
@@ -139,7 +155,8 @@ class ComfyUI(Backend):
             "1": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": ckpt}},
             "2": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["1", 1]}},
             "3": {"class_type": "CLIPTextEncode", "inputs": {"text": negative, "clip": ["1", 1]}},
-            "4": {"class_type": "EmptyLatentImage", "inputs": {"width": 1024, "height": 1024, "batch_size": 1}},
+            "4": {"class_type": "EmptyLatentImage", "inputs": {"width": self.size[0], "height": self.size[1],
+                                                                     "batch_size": 1}},
             "5": {"class_type": "KSampler", "inputs": {
                 "model": ["1", 0], "positive": ["2", 0], "negative": ["3", 0], "latent_image": ["4", 0],
                 "seed": seed, "steps": 25, "cfg": 6.0, "sampler_name": "dpmpp_2m", "scheduler": "karras",
@@ -284,7 +301,7 @@ class Fooocus(Backend):
             return m
         if label == "Aspect Ratios":
             choices = [ch[0] if isinstance(ch, (list, tuple)) else ch for ch in p.get("choices", [])]
-            return next((ch for ch in choices if ch.startswith("1024×1024")), p.get("value"))
+            return closest_ratio(choices, self.size) or p.get("value")
         return p.get("value")
 
     def _run(self, fn: int, data: list, session: str) -> dict:

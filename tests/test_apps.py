@@ -53,7 +53,8 @@ def test_light_theme_uses_light_vscode_base():
 
 
 def test_only_enabled_apps_are_built(midnight, tmp_path):
-    t = replace(midnight, apps=spec.Apps(kitty=True, alacritty=False, wezterm=False, ghostty=False, vscode=False))
+    t = replace(midnight, apps=spec.Apps(kitty=True, alacritty=False, wezterm=False, ghostty=False, vscode=False,
+                                         firefox=False, thunderbird=False))
     out = build.build(t, tmp_path / "b")
     assert [p.name for p in (out / "apps").iterdir()] == ["kitty"]
 

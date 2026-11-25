@@ -64,6 +64,52 @@ def cmd_apply(a) -> int:
     return subprocess.call([str(script)] + (["--layout"] if a.layout else []))
 
 
+def cmd_wallpaper(a) -> int:
+    """Render a wallpaper in the theme's palette with the local image AI and set it in the spec."""
+    from . import imagegen, wallpaper
+    path = Path(a.spec)
+    theme = spec.load(path)
+    screen = None
+    if a.size:
+        w, _, h = a.size.lower().partition("x")
+        screen = (int(w), int(h))
+    if a.prompt_only:
+        print(wallpaper.prompt(theme, a.idea or ""))
+        return 0
+    try:
+        out = wallpaper.generate(theme, path.parent, a.image_url, idea=a.idea or "", performance=a.performance,
+                                 model=a.image_model, seed=a.seed, screen=screen,
+                                 log=lambda s: print(f"… {s}", file=sys.stderr))
+    except imagegen.ImageGenError as e:
+        raise ValueError(str(e)) from None
+    theme.wallpaper = str(out)
+    spec.save(theme, path)
+    print(f"updated {path} — `kdec apply {path}` sets it")
+    return 0
+
+
+def cmd_revert(a) -> int:
+    """Put the desktop back the way it was before the last install (each install takes a restore point)."""
+    from . import restorepoints
+    pts = restorepoints.points()
+    if a.list or not pts:
+        if not pts:
+            print(f"no restore points in {restorepoints.root()} (install.sh takes one each time a theme is applied)")
+            return 0 if a.list else 1
+        for i, pt in enumerate(pts, 1):
+            print(f"{i:2}. {pt.label()}")
+        return 0
+    if not 1 <= a.steps <= len(pts):
+        raise ValueError(f"there are {len(pts)} restore point(s); pick 1..{len(pts)} (see --list)")
+    pt = pts[a.steps - 1]
+    if a.dry_run:
+        print(pt.script.read_text())
+        return 0
+    print(f"==> restoring: {pt.label()}", flush=True)
+    rc, _ = restorepoints.revert(pt)
+    return rc
+
+
 def cmd_layout(a) -> int:
     """Run only the panel/wallpaper layout script against the live shell."""
     out = builder.build(spec.load(a.spec), a.out)
@@ -220,6 +266,24 @@ def main(argv: list[str] | None = None) -> int:
         if name == "apply":
             s.add_argument("--layout", action="store_true", help="also replace panels with the theme's layout")
         s.set_defaults(fn=fn)
+
+    s = sub.add_parser("wallpaper", help="render a wallpaper in the theme's palette with your local image AI")
+    s.add_argument("spec")
+    s.add_argument("idea", nargs="?", help='what to show, e.g. "misty mountains at dusk" (default: the description)')
+    s.add_argument("--image-url", default="http://127.0.0.1:7865", help="Fooocus, ComfyUI or A1111/Forge")
+    s.add_argument("--image-model", default="", metavar="NAME", help='checkpoint: a name, "auto" or empty (default)')
+    s.add_argument("--performance", default="", help="Fooocus performance preset, e.g. Speed, Quality")
+    s.add_argument("--size", metavar="WxH", help="screen size (default: your largest screen)")
+    s.add_argument("--seed", type=int)
+    s.add_argument("--prompt-only", action="store_true", help="print the prompt (for any image app) and exit")
+    s.set_defaults(fn=cmd_wallpaper)
+
+    s = sub.add_parser("revert", help="undo the last theme install (restore the desktop from before it)")
+    s.add_argument("steps", nargs="?", type=int, default=1,
+                   help="which restore point: 1 = before the last install (default), 2 = the one before, ...")
+    s.add_argument("--list", action="store_true", help="list restore points")
+    s.add_argument("--dry-run", action="store_true", help="print the restore script instead of running it")
+    s.set_defaults(fn=cmd_revert)
 
     s = sub.add_parser("check", help="warn about unreadable colors and themes that aren't installed")
     s.add_argument("spec")

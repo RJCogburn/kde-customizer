@@ -9,7 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from . import cursorset, iconset
-from .generators import apps, aurorae, bootsplash, colors, gtk, konsole, kvantum, layout, lookandfeel, loginscreen, plasmastyle, splash
+from .generators import apps, aurorae, bootsplash, colors, gtk, konsole, kvantum, layout, lightdark, lookandfeel, loginscreen, mozilla, plasmastyle, restore, splash
 from .spec import Theme, save
 
 _FONT_KEYS = {  # Fonts field -> (file, group, key)
@@ -41,6 +41,12 @@ def all_tweaks(theme: Theme) -> dict[str, dict[str, dict[str, object]]]:
         lib, deco = theme.decoration_kwin
         put("kwinrc", "org.kde.kdecoration2", "library", lib)
         put("kwinrc", "org.kde.kdecoration2", "theme", deco)
+    if theme.light_dark.auto:
+        from . import variant
+        light, dark = variant.pair(theme)
+        put("kdeglobals", "KDE", "DefaultLightLookAndFeel", light.id)
+        put("kdeglobals", "KDE", "DefaultDarkLookAndFeel", dark.id)
+        put("kdeglobals", "KDE", "AutomaticLookAndFeel", True)
     for field, (f, g, k) in _FONT_KEYS.items():
         val = getattr(theme.fonts, field)
         if val:
@@ -144,7 +150,7 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
         (out / "boot" / "apply.sh").write_text(bootsplash.apply_script(theme))
         (out / "boot" / "apply.sh").chmod(0o755)
 
-    for rel, data in apps.files(theme).items():
+    for rel, data in {**apps.files(theme), **mozilla.files(theme)}.items():
         f = out / "apps" / rel
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_bytes(data) if isinstance(data, bytes) else f.write_text(data)
@@ -158,8 +164,30 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
         (out / "konsole" / f"{theme.slug}.colorscheme").write_text(konsole.colorscheme(theme))
         (out / "konsole" / f"{theme.slug}.profile").write_text(konsole.profile(theme))
 
+    if theme.light_dark.auto:
+        _build_variant(theme, out)
+
     _write_install_script(theme, out)
     return out
+
+
+# what install.sh takes from the variant's build (the rest would only duplicate the theme's own)
+_VARIANT_KEEP = {"lookandfeel", "color-schemes", "plasma", "icons", "cursors", "aurorae", "gtk", "apps", "konsole"}
+
+
+def _build_variant(theme: Theme, out: Path) -> None:
+    """[light_dark] auto: the opposite variant in out/variant/<VSlug>/, plus the follow hook in out/follow/."""
+    from . import variant
+    vt = variant.opposite(theme)
+    vout = build(vt, out / "variant")
+    for p in vout.iterdir():
+        if p.name not in _VARIANT_KEEP:
+            shutil.rmtree(p) if p.is_dir() else p.unlink()
+    f = out / "follow"
+    f.mkdir()
+    (f / "follow.sh").write_text(lightdark.follow_script())
+    (f / f"{lightdark.UNIT}.path").write_text(lightdark.path_unit("@CONF@/kdeglobals"))
+    (f / f"{lightdark.UNIT}.service").write_text(lightdark.service_unit("@DATA@/kde-customizer/follow/follow.sh"))
 
 
 def export(theme: Theme, dest: str | Path | None = None, build_root: str | Path = "build") -> Path:
@@ -187,6 +215,9 @@ def _write_install_script(theme: Theme, out: Path) -> None:
         'CONF="${XDG_CONFIG_HOME:-$HOME/.config}"',
         'LAYOUT=0; LOGIN=1; BOOT=1',
         'for a in "$@"; do case "$a" in --layout) LAYOUT=1 ;; --no-login) LOGIN=0 ;; --no-boot) BOOT=0 ;; esac; done',
+        "",
+        "# record the desktop as it is now; `kdec revert` (or the printed restore.sh) puts it back",
+        'if (( LAYOUT )); then bash "$DIR/restore-point.sh" --layout || true; else bash "$DIR/restore-point.sh" || true; fi',
         "",
         'echo "==> color scheme"',
         'mkdir -p "$DATA/color-schemes"',
@@ -244,6 +275,7 @@ def _write_install_script(theme: Theme, out: Path) -> None:
     if theme.wallpaper:
         s += ['echo "==> wallpaper"', f'mkdir -p "$DATA/wallpapers/{theme.slug}"',
               f'cp "$DIR"/wallpapers/* "$DATA/wallpapers/{theme.slug}/"']
+    s += _variant_lines(theme)
     s += [
         'echo "==> global theme package"',
         f'kpackagetool6 -t Plasma/LookAndFeel -u "$DIR/lookandfeel/{theme.id}" 2>/dev/null \\',
@@ -256,7 +288,10 @@ def _write_install_script(theme: Theme, out: Path) -> None:
         "fi",
         f"plasma-apply-colorscheme {q(theme.slug)} || true",
     ]
-    if theme.widgets.generate:
+    if theme.widgets.generate and theme.light_dark.auto:
+        s.append(f'echo "light/dark switching: apps use {theme.widget_style} (it follows the colors; '
+                 "a Kvantum style can't switch with them)\"")
+    elif theme.widgets.generate:
         # LnF set the fallback style; switch to Kvantum only where it's installed.
         s += [
             "if command -v kvantummanager >/dev/null 2>&1 \\",
@@ -293,6 +328,7 @@ def _write_install_script(theme: Theme, out: Path) -> None:
             for g, kv in groups.items():
                 for k, v in kv.items():
                     s.append(_kwrite(f, g, k, v))
+    s += _follow_lines(theme)
     if theme.login_screen.generate or theme.boot_splash.generate:
         s += _system_lines(theme)
     s += [
@@ -304,6 +340,120 @@ def _write_install_script(theme: Theme, out: Path) -> None:
     path = out / "install.sh"
     path.write_text("\n".join(s))
     path.chmod(0o755)
+    rp = out / "restore-point.sh"
+    rp.write_text(restore.script(theme))
+    rp.chmod(0o755)
+
+
+def _mozilla_lines(theme: Theme) -> list[str]:
+    """Firefox/LibreWolf/Thunderbird profiles: our CSS imported from chrome/userChrome.css (+ the pref enabling it);
+    an app switched off gets its import and file removed."""
+    imp = shlex.quote(mozilla.IMPORT)
+    s = [mozilla.PROFILES_FN]
+    for app in ("firefox", "thunderbird"):
+        roots = " ".join(f'"{r}"' for r in mozilla.ROOTS[app])
+        s += [f"while IFS= read -r P; do", '  UC="$P/chrome/userChrome.css"']
+        if getattr(theme.apps, app):
+            s += [
+                f'  echo "==> {app}: ${{P##*/}} (restart it to see the colors)"',
+                '  mkdir -p "$P/chrome"',
+                f'  cp "$DIR/apps/{app}/{mozilla.FILE}" "$P/chrome/"',
+                '  touch "$UC"',
+                f'  if ! grep -qxF {imp} "$UC"; then',
+                "    # @import must come before any rule: after the last existing @import, else first",
+                f"    awk -v imp={imp} '{{ l[NR] = $0; if ($0 ~ /^[[:space:]]*@import/) last = NR }} "
+                "END { if (!last) print imp; for (i = 1; i <= NR; i++) { print l[i]; if (i == last) print imp } }' "
+                '"$UC" > "$UC.tmp"; cat "$UC.tmp" > "$UC"; rm -f "$UC.tmp"',
+                "  fi",
+                "  grep -qs 'legacyUserProfileCustomizations.stylesheets' \"$P/user.js\" || "
+                f"echo {shlex.quote(mozilla.PREF + ' // kde-customizer')} >> \"$P/user.js\"",
+            ]
+        else:
+            s += [f'  if [[ -f "$UC" ]] && grep -qxF {imp} "$UC"; then grep -vxF {imp} "$UC" > "$UC.tmp" || true; '
+                  'cat "$UC.tmp" > "$UC"; rm -f "$UC.tmp"; fi',
+                  f'  rm -f "$P/chrome/{mozilla.FILE}"']
+        s += [f"done < <(moz_profiles {roots})"]
+    return s
+
+
+def _variant_lines(theme: Theme) -> list[str]:
+    """[light_dark] auto: install the opposite variant's parts (not applied: Plasma switches to it by schedule)."""
+    if not theme.light_dark.auto:
+        return []
+    from . import variant
+    vt = variant.opposite(theme)
+    v = f'"$DIR/variant/{vt.slug}"'
+    s = [f'echo "==> light/dark variant: {vt.name}"',
+         f'cp {v}/color-schemes/*.colors "$DATA/color-schemes/"']
+    for on, kind, name, dest in [(vt.plasma.generate, "plasma", vt.plasma_style_name, "$DATA/plasma/desktoptheme"),
+                                 (vt.iconset.generate, "icons", vt.icons_name, "$DATA/icons"),
+                                 (vt.cursorset.generate, "cursors", vt.cursors_name, "$DATA/icons"),
+                                 (vt.decoration.generate, "aurorae", vt.decoration_name, "$DATA/aurorae/themes")]:
+        if on:
+            s += [f'if [[ -d {v}/{kind}/{name} ]]; then mkdir -p "{dest}"; rm -rf "{dest}/{name}"; '
+                  f'cp -r {v}/{kind}/{name} "{dest}/"; fi']
+    if vt.plasma.generate:
+        s.append(f'rm -f "${{XDG_CACHE_HOME:-$HOME/.cache}}"/plasma_theme_{vt.plasma_style_name}*.kcache')
+    if vt.konsole:
+        s += ['mkdir -p "$DATA/konsole"', f'cp {v}/konsole/* "$DATA/konsole/"']
+    s += [f'kpackagetool6 -t Plasma/LookAndFeel -u {v}/lookandfeel/{vt.id} 2>/dev/null \\',
+          f'  || kpackagetool6 -t Plasma/LookAndFeel -i {v}/lookandfeel/{vt.id}']
+    return s
+
+
+def _follow_lines(theme: Theme) -> list[str]:
+    """[light_dark] auto: the kdec-follow user unit keeps GTK/terminal colors in step with Plasma's switch.
+    Without it: Plasma's own switching is turned off (it would replace this theme at sunset) and the unit removed."""
+    unit = lightdark.UNIT
+    sysd = '"$CONF/systemd/user"'
+    has_systemd = "command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1"
+    if not theme.light_dark.auto:
+        return [
+            'if [[ "$(kreadconfig6 --file kdeglobals --group KDE --key AutomaticLookAndFeel)" == true ]]; then',
+            '  echo "==> light/dark switching off (this theme has no light/dark pair)"',
+            "  kwriteconfig6 --notify --file kdeglobals --group KDE --key AutomaticLookAndFeel false",
+            "fi",
+            f'if [[ -f {sysd}/{unit}.path ]]; then',
+            f"  {{ {has_systemd}; }} && systemctl --user disable --now {unit}.path >/dev/null 2>&1 || true",
+            f'  rm -f {sysd}/{unit}.path {sysd}/{unit}.service; rm -rf "$DATA/kde-customizer/follow"',
+            "fi",
+        ]
+    from . import variant
+    vt = variant.opposite(theme)
+    s = ['echo "==> light/dark: GTK and terminal colors follow the switch"',
+         'F="$DATA/kde-customizer/follow"', 'mkdir -p "$F"',
+         'cp "$DIR/follow/follow.sh" "$F/"']
+    for t, src in [(theme, '"$DIR"'), (vt, f'"$DIR/variant/{vt.slug}"')]:
+        d = f'"$F/{t.id}"'
+        s += [f"rm -rf {d}; mkdir -p {d}"]
+        if t.gtk.generate:
+            s.append(f"cp {src}/gtk/{gtk.FILE} {d}/")
+        if t.apps.kitty:
+            s.append(f"cp {src}/apps/kitty/{t.slug}.conf {d}/kitty.conf")
+        if t.apps.alacritty:
+            s.append(f"cp {src}/apps/alacritty/kde-customizer.toml {d}/alacritty.toml")
+        if t.apps.ghostty:
+            s += [f"echo {shlex.quote(t.slug)} > {d}/ghostty",
+                  f'if [[ -d "$CONF/ghostty" ]]; then mkdir -p "$CONF/ghostty/themes"; '
+                  f'cp {src}/apps/ghostty/{t.slug} "$CONF/ghostty/themes/"; fi']
+        if t.konsole:
+            s.append(f"echo {shlex.quote(t.slug + '.profile')} > {d}/konsole")
+        for app in ("firefox", "thunderbird"):
+            if getattr(t.apps, app):
+                s.append(f"cp {src}/apps/{app}/{mozilla.FILE} {d}/{app}.css")
+    s += [
+        f"if {has_systemd}; then",
+        f"  mkdir -p {sysd}",
+        f'  for u in {unit}.path {unit}.service; do',
+        '    sed -e "s#@CONF@#$CONF#g" -e "s#@DATA@#$DATA#g" "$DIR/follow/$u" > ' + sysd + '/"$u"',
+        "  done",
+        "  systemctl --user daemon-reload",
+        f"  systemctl --user enable --now {unit}.path >/dev/null 2>&1 || echo \"  could not enable {unit}.path\"",
+        "else",
+        '  echo "  no systemd user session: GTK/terminal colors stay as installed when Plasma switches"',
+        "fi",
+    ]
+    return s
 
 
 def _system_lines(theme: Theme) -> list[str]:
@@ -489,6 +639,8 @@ def _apps_lines(theme: Theme) -> list[str]:
             '  rm -f "$CONF/alacritty/kde-customizer.toml"',
         ]
     s += ["fi"]
+
+    s += _mozilla_lines(theme)
 
     # VS Code family: install the extension; the theme is picked in Color Theme (settings.json is left alone)
     if a.vscode:
