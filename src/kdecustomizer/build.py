@@ -55,7 +55,8 @@ def all_tweaks(theme: Theme) -> dict[str, dict[str, dict[str, object]]]:
 def _kwrite(file: str, group: str, key: str, value: object) -> str:
     v = ("true" if value else "false") if isinstance(value, bool) else str(value)
     groups = " ".join(f"--group {shlex.quote(g)}" for g in group.split("/"))
-    return f"kwriteconfig6 --file {shlex.quote(file)} {groups} --key {shlex.quote(key)} {shlex.quote(v)}"
+    # --notify: running apps that watch their config (Plasma, screen locker, notifications) reload it now
+    return f"kwriteconfig6 --notify --file {shlex.quote(file)} {groups} --key {shlex.quote(key)} {shlex.quote(v)}"
 
 
 def build(theme: Theme, out_root: str | Path = "build") -> Path:
@@ -300,8 +301,8 @@ def _login_lines(theme: Theme) -> list[str]:
         'echo "==> login screen"',
         "if (( ! LOGIN )); then",
         '  echo "skipped (--no-login)"',
-        f"elif ! getent passwd {loginscreen.GREETER_USER} >/dev/null; then",
-        '  echo "Plasma Login Manager is not installed: login screen left as is"',
+        "elif ! getent passwd plasmalogin >/dev/null && ! getent passwd sddm >/dev/null; then",
+        '  echo "Neither Plasma Login Manager nor SDDM is installed: login screen left as is"',
         "else",
         '  STATE="${XDG_STATE_HOME:-$HOME/.local/state}/kde-customizer"',
         f'  STAMP="$STATE/login-{theme.slug}"',

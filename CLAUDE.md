@@ -41,17 +41,23 @@ Aliases stay relative symlinks. Only bases with `cursors_scalable/` work (`scala
 Check with a contact sheet: parse the Xcursor images and paint them on dark + light backgrounds.
 
 ## Login screen (`[login_screen] generate = true`)
-Plasma 6.8 uses Plasma Login Manager (`plasmalogin`, the SDDM successor), not SDDM themes: a compiled QML greeter
-running as user `plasmalogin` (home `/var/lib/plasmalogin`). It reads that user's `~/.config/{kdeglobals,plasmarc,
-kcminputrc}` and `~/.local/share`; the wallpaper is in `/etc/plasmalogin.conf` `[Greeter][Wallpaper][<plugin>][General]`
-with images in `~plasmalogin/wallpapers/`. `generators/loginscreen.py` → `build/<Slug>/login/apply.sh` (root:
-stages assets, `runuser`s `greeter.sh`, writes the conf) + `greeter.sh` (as plasmalogin: copies assets, merges keys
-with kwriteconfig6, clears its cache). `install.sh` runs `pkexec bash login/apply.sh` once and stores a hash in
+Two greeters, picked at install time from `display-manager.service` (else whichever greeter user exists):
+- Plasma Login Manager (`plasmalogin`, Plasma 6.6+, this dev box): compiled QML greeter running as user
+  `plasmalogin` (home `/var/lib/plasmalogin`); wallpaper in `/etc/plasmalogin.conf`
+  `[Greeter][Wallpaper][<plugin>][General]`, images in `~plasmalogin/wallpapers/`.
+  Source: invent.kde.org/plasma/plasma-login-manager (`src/frontend/kcm/`).
+- SDDM (`sddm`, home `/var/lib/sddm`), Breeze SDDM theme from plasma-desktop: `/etc/sddm.conf.d/kde_settings.conf`
+  `[Theme]` Current/CursorTheme/Font; `type`/`color`/`background`/`showClock` in
+  `/usr/share/sddm/themes/breeze/theme.conf.user` (wallpaper copied next to it). Source: plasma/sddm-kcm.
+Both greeters read their user's `~/.config/{kdeglobals,plasmarc,kcminputrc}` and `~/.local/share`.
+`generators/loginscreen.py` → `build/<Slug>/login/apply.sh` (root: detects the DM, stages assets, `runuser`s
+`greeter.sh`, writes the system config) + `greeter.sh` (as the greeter user: copies assets, merges keys with
+kwriteconfig6, clears its cache). `install.sh` runs `pkexec bash login/apply.sh` once and stores a hash in
 `~/.local/state/kde-customizer/login-<Slug>` to skip the password prompt when nothing changed; `--no-login` skips it.
-Upstream source: invent.kde.org/plasma/plasma-login-manager (`src/frontend/kcm/` = what System Settings writes).
-Test without root: run apply.sh with the chown/runuser/conf lines stripped into a fake home, then
-`HOME=… XDG_CONFIG_HOME=… XDG_DATA_HOME=… XDG_CACHE_HOME=… /usr/lib/plasma-login-greeter --test` (full screen, gray
-background — the wallpaper is a separate process) and screenshot it.
+Test without root: `KDEC_LOGIN_ROOT=<tmp> KDEC_LOGIN_HOME=<tmp home> KDEC_LOGIN_DM=sddm|plasmalogin bash
+login/apply.sh build/<Slug>` writes everything under <tmp>. For Plasma Login, then run
+`HOME=… XDG_CONFIG_HOME=… XDG_DATA_HOME=… XDG_CACHE_HOME=… /usr/lib/plasma-login-greeter --test` (full screen,
+gray background — the wallpaper is a separate process) and screenshot it.
 
 ## GUI
 `gui/app.py` = editor tabs (left) + `gui/preview.py` live preview (right) + `gui/ai_panel.py` on top.

@@ -54,14 +54,16 @@ def kvantum_installed() -> bool:
     return shutil.which("kvantummanager") is not None or any((d / "libkvantum.so").exists() for d in plugin_dirs)
 
 
-def plasma_login_installed() -> bool:
-    """Plasma Login Manager (the greeter `login_screen` themes) is set up: its greeter user exists."""
+def login_manager_installed() -> bool:
+    """A greeter `login_screen` can theme is set up (Plasma Login Manager or SDDM): its user exists."""
     import pwd
-    try:
-        pwd.getpwnam("plasmalogin")
-        return True
-    except KeyError:
-        return False
+    for user in ("plasmalogin", "sddm"):
+        try:
+            pwd.getpwnam(user)
+            return True
+        except KeyError:
+            pass
+    return False
 
 
 def summary() -> dict[str, list[str]]:

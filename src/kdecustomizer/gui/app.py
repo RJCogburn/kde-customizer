@@ -118,16 +118,28 @@ class FontField(QWidget):
 POPUPS = [("Desktop", ""), ("Launcher menu", "launcher"), ("Calendar", "calendar"),
           ("System tray", "tray"), ("Dialog", "dialog")]
 
-# "Add common" tweaks: (menu label, [(file, group, key, value)])
+# "Add common" tweaks: (submenu, label, [(file, group, key, value)]). Keys checked against KWin/Plasma 6.8 kcfg.
 TWEAK_PRESETS = [
-    ("Wobbly windows", [("kwinrc", "Plugins", "wobblywindowsEnabled", True)]),
-    ("Magic lamp minimize", [("kwinrc", "Plugins", "magiclampEnabled", True),
-                             ("kwinrc", "Plugins", "squashEnabled", False)]),
-    ("Dim inactive windows", [("kwinrc", "Plugins", "diminactiveEnabled", True)]),
-    ("Shake cursor to find it", [("kwinrc", "Plugins", "shakecursorEnabled", True)]),
-    ("Stronger blur", [("kwinrc", "Plugins", "blurEnabled", True), ("kwinrc", "Effect-blur", "BlurStrength", 10)]),
-    ("Faster animations", [("kdeglobals", "KDE", "AnimationDurationFactor", 0.5)]),
-    ("Single click opens files", [("kdeglobals", "KDE", "SingleClick", True)]),
+    ("Effects", "Wobbly windows", [("kwinrc", "Plugins", "wobblywindowsEnabled", True)]),
+    ("Effects", "Magic lamp minimize", [("kwinrc", "Plugins", "magiclampEnabled", True),
+                                        ("kwinrc", "Plugins", "squashEnabled", False)]),
+    ("Effects", "Fall apart when closing", [("kwinrc", "Plugins", "fallapartEnabled", True)]),
+    ("Effects", "Desktop cube", [("kwinrc", "Plugins", "cubeEnabled", True)]),
+    ("Effects", "Dim inactive windows", [("kwinrc", "Plugins", "diminactiveEnabled", True)]),
+    ("Effects", "Translucent inactive windows", [("kwinrc", "Plugins", "translucencyEnabled", True)]),
+    ("Effects", "Shake cursor to find it", [("kwinrc", "Plugins", "shakecursorEnabled", True)]),
+    ("Effects", "Stronger blur", [("kwinrc", "Plugins", "blurEnabled", True),
+                                  ("kwinrc", "Effect-blur", "BlurStrength", 10)]),
+    ("Effects", "Faster animations", [("kdeglobals", "KDE", "AnimationDurationFactor", 0.5)]),
+    ("Effects", "No animations", [("kdeglobals", "KDE", "AnimationDurationFactor", 0)]),
+    ("Windows", "Focus follows mouse", [("kwinrc", "Windows", "FocusPolicy", "FocusFollowsMouse")]),
+    ("Windows", "No maximize when dragged to the top", [("kwinrc", "Windows", "ElectricBorderMaximize", False)]),
+    ("Windows", "No tiling when dragged to an edge", [("kwinrc", "Windows", "ElectricBorderTiling", False)]),
+    ("Windows", "No Overview hot corner", [("kwinrc", "Effect-overview", "BorderActivate", 9)]),
+    ("Desktop", "Single click opens files", [("kdeglobals", "KDE", "SingleClick", True)]),
+    ("Desktop", "Night Light on", [("kwinrc", "NightColor", "Active", True)]),
+    ("Desktop", "Shorter notifications (3 s)", [("plasmanotifyrc", "Notifications", "PopupTimeout", 3000)]),
+    ("Desktop", "Lock screen after 10 minutes", [("kscreenlockerrc", "Daemon", "Timeout", 10)]),
 ]
 
 
@@ -466,8 +478,8 @@ class Main(QMainWindow):
 
         f = self._group("Login screen", v)
         self.l_generate = QCheckBox("Theme the login screen")
-        self.l_generate.setToolTip("Colors, Plasma style, icons, cursors and wallpaper on the Plasma Login "
-                                   "screen. Installing asks for the admin password (only when it changed).")
+        self.l_generate.setToolTip("Colors, Plasma style, icons, cursors and wallpaper on the login screen "
+                                   "(Plasma Login Manager or SDDM). Installing asks for the admin password (only when it changed).")
         self.l_generate.toggled.connect(self.changed)
         self.l_generate.toggled.connect(self._login_generate_toggled)
         f.addRow(self.l_generate)
@@ -630,8 +642,11 @@ class Main(QMainWindow):
         common = QToolButton(text="Add common", icon=QIcon.fromTheme("list-add"),
                              toolButtonStyle=Qt.ToolButtonTextBesideIcon, popupMode=QToolButton.InstantPopup)
         menu = QMenu(common)
-        for label, entries in TWEAK_PRESETS:
-            menu.addAction(label, lambda e=entries: self._add_tweaks(e))
+        subs: dict[str, QMenu] = {}
+        for sub, label, entries in TWEAK_PRESETS:
+            if sub not in subs:
+                subs[sub] = menu.addMenu(sub)
+            subs[sub].addAction(label, lambda e=entries: self._add_tweaks(e))
         common.setMenu(menu)
         add = QPushButton(QIcon.fromTheme("list-add"), "Add row")
         add.clicked.connect(lambda: self._add_tweaks([("kwinrc", "", "", "")], edit=True))

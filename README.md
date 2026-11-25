@@ -14,7 +14,7 @@ From about seven palette colors, one theme spec generates:
   needs the `kvantum` package, otherwise apps keep Breeze)
 - a **cursor theme** in your palette (Breeze's cursors recolored: dark, inverted or accent body), for
   Wayland and X11 apps
-- the **login screen** (Plasma Login Manager): your colors, Plasma style, icons, cursors and wallpaper;
+- the **login screen** (Plasma Login Manager, or SDDM's Breeze theme): your colors, Plasma style, icons, cursors and wallpaper;
   installing asks for the admin password once, and again only when it changes
 - a **splash screen** (theme name and a progress bar over a palette gradient or your dimmed wallpaper)
 - a **window decoration** (Aurorae title bars in your palette: corner radius, title height, symbol or

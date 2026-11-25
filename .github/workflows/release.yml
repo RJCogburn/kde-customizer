@@ -79,6 +79,48 @@ jobs:
           name: arch
           path: arch/*.pkg.tar.zst
 
+  # The login screen script for real, as root, against an SDDM install (the dev box runs Plasma Login).
+  login-test:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: SDDM + tools
+        run: pacman -Syu --noconfirm --needed sddm kconfig python python-pyside6 util-linux
+      - uses: actions/checkout@v4
+      - name: Theme the SDDM login screen
+        run: |
+          set -euxo pipefail
+          getent passwd sddm || useradd -r -m -d /var/lib/sddm -s /usr/bin/nologin sddm
+          mkdir -p /var/lib/sddm /usr/share/sddm/themes/breeze /usr/share/icons
+          # a cursor base with SVG cursors for [cursorset] (normally from breeze)
+          python3 - <<'EOF'
+          from pathlib import Path
+          d = Path("/usr/share/icons/breeze_cursors")
+          (d / "cursors_scalable/default").mkdir(parents=True, exist_ok=True)
+          (d / "cursors").mkdir(exist_ok=True)
+          (d / "index.theme").write_text("[Icon Theme]\nName=Breeze\n")
+          (d / "cursors_scalable/default/default.svg").write_text(
+              '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><path d="M4 4v16l4-4z" fill="#fff"/></svg>')
+          (d / "cursors_scalable/default/metadata.json").write_text(
+              '[{"filename": "default.svg", "hotspot_x": 4, "hotspot_y": 4, "nominal_size": 24}]')
+          EOF
+          cp examples/midnight.toml /tmp/t.toml
+          printf 'P3\n2 2\n255\n20 21 31 20 21 31 139 124 246 139 124 246\n' > /tmp/wall.ppm
+          sed -i 's#^konsole = true#konsole = true\nwallpaper = "/tmp/wall.ppm"#' /tmp/t.toml
+          QT_QPA_PLATFORM=offscreen PYTHONPATH=src python3 -m kdecustomizer.cli build /tmp/t.toml -o /tmp/b | tail -1
+          bash /tmp/b/Midnight/login/apply.sh /tmp/b/Midnight
+          cat /etc/sddm.conf.d/kde_settings.conf /usr/share/sddm/themes/breeze/theme.conf.user
+          grep -q '^Current=breeze' /etc/sddm.conf.d/kde_settings.conf
+          grep -q '^CursorTheme=Midnight-Cursors' /etc/sddm.conf.d/kde_settings.conf
+          grep -q '^type=image' /usr/share/sddm/themes/breeze/theme.conf.user
+          test -f /usr/share/sddm/themes/breeze/kde-customizer-background.ppm
+          grep -q '^name=Midnight' /var/lib/sddm/.config/plasmarc
+          grep -q '^cursorTheme=Midnight-Cursors' /var/lib/sddm/.config/kcminputrc
+          grep -q '^\[Colors:Window\]' /var/lib/sddm/.config/kdeglobals
+          test -d /var/lib/sddm/.local/share/icons/Midnight-Cursors
+          test -d /var/lib/sddm/.local/share/plasma/desktoptheme/Midnight
+          test "$(stat -c %U /var/lib/sddm/.config/kdeglobals)" = sddm
+
   install-test:
     needs: build
     runs-on: ubuntu-latest
@@ -142,7 +184,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [install-test, aur]
+    needs: [install-test, aur, login-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
