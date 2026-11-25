@@ -26,6 +26,25 @@ if [[ ! -x "$TOOLS_VENV/bin/python-appimage" ]]; then
 fi
 TOOLS="$TOOLS_VENV/bin"
 
+# python-appimage lists its releases through the GitHub API without logging in: 60 requests/hour per IP, which
+# shared CI runners use up. With GITHUB_TOKEN set (CI passes the workflow token), send it on those calls.
+pyappimage() {
+    "$TOOLS/python" - "$@" <<'PY'
+import os, sys, urllib.request
+token = os.environ.get("GITHUB_TOKEN")
+if token:
+    _open = urllib.request.urlopen
+    def urlopen(url, *a, **kw):
+        if isinstance(url, str) and url.startswith("https://api.github.com/"):
+            url = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+        return _open(url, *a, **kw)
+    urllib.request.urlopen = urlopen      # before python_appimage imports it
+sys.argv = ["python-appimage", *sys.argv[1:]]
+from python_appimage.__main__ import main
+main()
+PY
+}
+
 echo "==> building kdecustomizer wheel"
 "$TOOLS/python" -m build --wheel --outdir "$WORK/wheel" "$ROOT" >/dev/null
 WHEEL="$(ls "$WORK"/wheel/kdecustomizer-*.whl)"
@@ -42,7 +61,7 @@ EOF
 
 echo "==> building AppImage (Python $PYVER)"
 cd "$WORK"
-"$TOOLS/python-appimage" build app --no-packaging -p "$PYVER" -n KDE_Customizer "$WORK/recipe"
+pyappimage build app --no-packaging -p "$PYVER" -n KDE_Customizer "$WORK/recipe"
 APPDIR="$(find "$WORK" -maxdepth 1 -type d -name 'KDE*Customizer-*' | head -1)"
 "$ROOT/packaging/trim-runtime.sh" "$APPDIR"
 
@@ -54,8 +73,8 @@ cp -a "$APPDIR" "$ROOT/build/appdir"
 # Package ourselves (python-appimage loses track of the file when the app's display name has a space).
 OUT="$ROOT/dist/KDE_Customizer-$VERSION-x86_64.AppImage"
 # Only the normal (non --no-packaging) path downloads appimagetool; on a fresh machine fetch it here.
-"$TOOLS/python-appimage" install appimagetool >/dev/null
-APPIMAGETOOL="$("$TOOLS/python-appimage" which appimagetool)"
+pyappimage install appimagetool >/dev/null
+APPIMAGETOOL="$(pyappimage which appimagetool)"
 [[ -x "$APPIMAGETOOL" ]] || { echo "appimagetool not found after install" >&2; exit 1; }
 ARCH=x86_64 "$APPIMAGETOOL" --no-appstream "$APPDIR" "$OUT" >/dev/null 2>"$WORK/appimagetool.log" \
     || { cat "$WORK/appimagetool.log"; exit 1; }

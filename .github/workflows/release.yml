@@ -33,6 +33,8 @@ jobs:
           bash -n /tmp/check/Midnight/install.sh
       - name: AppImage
         run: packaging/appimage/build.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # python-appimage's GitHub API calls (rate limit)
       - name: .tar.gz, .deb, .rpm
         run: packaging/build-packages.sh
       - name: Checksums
@@ -85,7 +87,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: SDDM + tools
-        run: pacman -Syu --noconfirm --needed sddm kconfig python python-pyside6 util-linux
+        run: pacman -Syu --noconfirm --needed sddm kconfig python pyside6 util-linux
       - uses: actions/checkout@v4
       - name: Theme the SDDM login screen
         run: |
