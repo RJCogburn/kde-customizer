@@ -1,6 +1,6 @@
 # Maintainer: RJCogburn <28759507+RJCogburn@users.noreply.github.com>
 pkgname=kde-customizer
-pkgver=0.1.16
+pkgver=0.1.17
 pkgrel=1
 pkgdesc="Build, preview and apply complete KDE Plasma 6 themes from one TOML spec, with AI-assisted design and icon sets"
 arch=('any')
