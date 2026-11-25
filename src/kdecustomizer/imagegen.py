@@ -297,10 +297,16 @@ _AI_PROCESS = re.compile(r"(launch\.py|entry_with_update\.py|webui\.py|fooocus|c
                          re.I)
 
 
+def _clean_env() -> dict[str, str]:
+    """Environment for another Python: nothing from our own runtime (AppImage/venv paths, Qt plugins)."""
+    drop = ("PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "LD_LIBRARY_PATH", "LD_PRELOAD", "VIRTUAL_ENV")
+    return {k: v for k, v in os.environ.items() if k not in drop and not k.startswith("QT_")}
+
+
 def _has_rembg(python: str) -> bool:
     try:
         return subprocess.run([python, "-c", "import rembg, onnxruntime"], capture_output=True,
-                              timeout=60).returncode == 0
+                              timeout=60, env=_clean_env()).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False
 
@@ -367,7 +373,7 @@ def remove_background(data: bytes) -> tuple[bytes | None, str]:
     code = ("import sys; from rembg import remove, new_session; "
             f"sys.stdout.buffer.write(remove(sys.stdin.buffer.read(), session=new_session({model!r})))")
     try:
-        r = subprocess.run([py, "-c", code], input=data, capture_output=True, timeout=300)
+        r = subprocess.run([py, "-c", code], input=data, capture_output=True, timeout=300, env=_clean_env())
     except (OSError, subprocess.TimeoutExpired) as e:
         return None, f"rembg via {py} failed: {e}"
     if r.returncode != 0 or not r.stdout.startswith(b"\x89PNG"):
