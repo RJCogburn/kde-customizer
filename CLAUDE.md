@@ -33,7 +33,12 @@ Target system: Plasma 6.8, Qt 6, Python 3.11+ (dev box runs 3.14, CachyOS).
 - `signature.py` — 14 `SLOTS` made custom: `svg` (AI JSON of SVGs, sanitized), `image` (local image AI), or
   `import`. Stored in `<spec dir>/<slug>-icons/{svg,png}/<slot>.*`; they replace recolored versions.
 - `imagegen.py` — Fooocus (Gradio 3 queue over a stdlib websocket; settings matched by label), ComfyUI,
-  A1111/Forge. `to_icon()` cuts the background (rembg if installed, else edge flood fill).
+  A1111/Forge. `to_icon()` cuts the background with rembg — imported here, or through another Python that has
+  it (`$KDEC_REMBG_PYTHON`, the cached one, or the running image AI's venv found via /proc: Fooocus/ComfyUI/A1111
+  ship rembg + onnxruntime) using the best model already in ~/.u2net — else a flood fill that spreads through
+  backdrop-colored pixels or smooth steps only (keeps light metal behind crisp edges, every piece ≥1% of the
+  largest). Raw renders are kept in `<sig>/raw/` so `signature.recut()` / `kdec icons --recut` / "Re-cut
+  backgrounds" can redo the cut-out without the GPU.
   Running image gens uses the user's GPU — test with `--only` and a couple of icons.
 
 ## Cursors (`[cursorset] generate = true`)

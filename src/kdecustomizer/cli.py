@@ -134,7 +134,11 @@ def cmd_icons(a) -> int:
         theme.iconset.style = a.style
     log = lambda s: print(f"… {s}", file=sys.stderr)  # noqa: E731
     try:
-        if a.import_dir:
+        if a.recut:
+            print(f"… background removal: {signature.imagegen.cutout_method()}", file=sys.stderr)
+            done = signature.recut(sig, only, log=log)
+            mode = "image"
+        elif a.import_dir:
             done = signature.import_images(theme, sig, a.import_dir)
             mode = "image"
         elif a.mode == "image":
@@ -150,7 +154,8 @@ def cmd_icons(a) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 1
     if not done:
-        print("no icons were made (for --import, name files after the icons, e.g. folder.png)", file=sys.stderr)
+        print("no icons were made (for --import, name files after the icons, e.g. folder.png; --recut needs "
+              "raw renders, kept since v0.1.17)", file=sys.stderr)
         return 1
     # Record it in the spec: generated icon set on, pointing at the signature folder (relative path).
     saved = spec.load(a.spec)
@@ -240,6 +245,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--performance", default="", help="Fooocus performance preset, e.g. Speed, Quality, Lightning")
     s.add_argument("--prompts", action="store_true", help="print prompts to make the icons in any image app")
     s.add_argument("--import", dest="import_dir", metavar="DIR", help="import <icon-name>.png/.svg files from DIR")
+    s.add_argument("--recut", action="store_true",
+                   help="cut the backgrounds out of the kept raw renders again (no image AI needed)")
     s.set_defaults(fn=cmd_icons)
 
     a = p.parse_args(argv)

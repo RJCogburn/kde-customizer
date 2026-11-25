@@ -194,8 +194,9 @@ def generate_images(theme: Theme, sig_dir: Path, url: str, *, performance: str =
     for n, slot in enumerate(slots, 1):
         log(f"{backend.name}: rendering {slot} ({n}/{len(slots)})…")
         raw = backend.generate(image_prompt(theme, slot), NEGATIVE, seed)
+        save_raw(sig_dir, slot, raw)            # kept so the cut-out can be redone (recut) without the GPU
         buf = io.BytesIO()
-        imagegen.to_icon(raw).save(buf, "PNG")
+        imagegen.to_icon(raw, log=log).save(buf, "PNG")
         _store(sig_dir, slot, "png", buf.getvalue())
         done.append(slot)
     return done
@@ -221,12 +222,41 @@ def import_images(theme: Theme, sig_dir: Path, folder: str | Path, cut_backgroun
                     with Image.open(f) as im:
                         icon = imagegen._square(im.convert("RGBA"), 512)
                 else:
+                    save_raw(sig_dir, slot, data)
                     icon = imagegen.to_icon(data)
                 buf = io.BytesIO()
                 icon.save(buf, "PNG")
                 _store(sig_dir, slot, "png", buf.getvalue())
             done.append(slot)
             break
+    return done
+
+
+def save_raw(sig_dir: Path, slot: str, data: bytes) -> None:
+    """The uncut render/import, in <sig>/raw/<slot>.<ext>: iconset never reads it, recut() does."""
+    from PIL import Image
+    with Image.open(io.BytesIO(data)) as im:
+        ext = {"JPEG": "jpg", "WEBP": "webp"}.get(im.format or "", "png")
+    raw = sig_dir / "raw"
+    raw.mkdir(parents=True, exist_ok=True)
+    for old in raw.glob(f"{slot}.*"):
+        old.unlink()
+    (raw / f"{slot}.{ext}").write_bytes(data)
+
+
+def recut(sig_dir: str | Path, slots: list[str] | None = None, log=lambda s: None) -> list[str]:
+    """Cut the backgrounds out of the kept raw renders again (better tool installed, or a bad cut)."""
+    sig = Path(sig_dir)
+    done = []
+    for f in sorted((sig / "raw").glob("*.*")):
+        slot = f.stem
+        if slot not in SLOTS or (slots and slot not in slots) or (sig / "svg" / f"{slot}.svg").is_file():
+            continue
+        log(f"cutting out {slot}…")
+        buf = io.BytesIO()
+        imagegen.to_icon(f.read_bytes(), log=log).save(buf, "PNG")
+        _store(sig, slot, "png", buf.getvalue())
+        done.append(slot)
     return done
 
 
@@ -261,3 +291,5 @@ def clear(sig_dir: str | Path, slots: list[str] | None = None) -> None:
     for slot in slots:
         for kind in ("svg", "png"):
             (d / kind / f"{slot}.{kind}").unlink(missing_ok=True)
+        for raw in (d / "raw").glob(f"{slot}.*"):
+            raw.unlink()

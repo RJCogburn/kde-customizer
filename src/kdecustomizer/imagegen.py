@@ -11,12 +11,15 @@ import io
 import json
 import os
 import random
+import re
+import subprocess
 import socket
 import struct
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 
 class ImageGenError(RuntimeError):
@@ -279,11 +282,114 @@ def detect(url: str, performance: str = "") -> Backend:
 
 # --- post-processing ------------------------------------------------------------------------
 
-def _components(fg: bytearray, w: int, h: int) -> bytearray:
-    """Keep only the largest 4-connected foreground region (drops specks, stray reflections)."""
+# --- background removal -------------------------------------------------------------------------------
+# A segmentation model (rembg: u2net / isnet) is far better than any heuristic on metal, glass and soft edges.
+# It's used when importable here, or through another Python that has it — usually the image AI's own env
+# (Fooocus / ComfyUI / A1111 ship rembg for their mask tools), found from its running process. Only when
+# neither is available does the built-in edge flood fill below run.
+
+def _rembg_cache() -> Path:
+    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "kdecustomizer" / "rembg-python"
+
+
+_found_python: list = []          # [path or None] once looked up in this process
+_AI_PROCESS = re.compile(r"(launch\.py|entry_with_update\.py|webui\.py|fooocus|comfyui|stable-diffusion-webui|forge)",
+                         re.I)
+
+
+def _has_rembg(python: str) -> bool:
+    try:
+        return subprocess.run([python, "-c", "import rembg, onnxruntime"], capture_output=True,
+                              timeout=60).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _ai_pythons() -> list[str]:
+    """Pythons of running image-AI processes (venv interpreters as launched, not the resolved binary)."""
+    out = []
+    for proc in Path("/proc").glob("[0-9]*"):
+        try:
+            argv = (proc / "cmdline").read_bytes().split(b"\0")
+            cwd = os.readlink(proc / "cwd")
+        except OSError:
+            continue
+        args = [a.decode(errors="replace") for a in argv if a]
+        if not args or "python" not in Path(args[0]).name or not _AI_PROCESS.search(" ".join(args[1:]) + " " + cwd):
+            continue
+        py = args[0] if os.path.isabs(args[0]) else os.path.join(cwd, args[0])
+        if os.path.isfile(py) and py not in out:
+            out.append(py)
+    return out
+
+
+def rembg_python() -> str | None:
+    """A Python that can run rembg: $KDEC_REMBG_PYTHON, the last one found, or a running image AI's."""
+    if _found_python:
+        return _found_python[0]
+    candidates = [os.environ.get("KDEC_REMBG_PYTHON", "")]
+    try:
+        candidates.append(_rembg_cache().read_text().strip())
+    except OSError:
+        pass
+    candidates += _ai_pythons()
+    found = next((c for c in candidates if c and os.path.isfile(c) and _has_rembg(c)), None)
+    if found:
+        try:
+            _rembg_cache().parent.mkdir(parents=True, exist_ok=True)
+            _rembg_cache().write_text(found)
+        except OSError:
+            pass
+    _found_python.append(found)
+    return found
+
+
+def _rembg_model() -> str:
+    """The best model already downloaded (no surprise 170 MB download), else u2net."""
+    home = Path(os.environ.get("U2NET_HOME") or Path.home() / ".u2net")
+    for model in ("isnet-general-use", "u2net"):
+        if (home / f"{model}.onnx").is_file():
+            return model
+    return "u2net"
+
+
+def remove_background(data: bytes) -> tuple[bytes | None, str]:
+    """(RGBA PNG bytes, how) via rembg — in this Python or another one; (None, reason) when unavailable."""
+    model = _rembg_model()
+    try:
+        from rembg import new_session, remove
+        return remove(data, session=new_session(model)), f"rembg ({model})"
+    except ImportError:
+        pass
+    py = rembg_python()
+    if py is None:
+        return None, "no rembg found"
+    code = ("import sys; from rembg import remove, new_session; "
+            f"sys.stdout.buffer.write(remove(sys.stdin.buffer.read(), session=new_session({model!r})))")
+    try:
+        r = subprocess.run([py, "-c", code], input=data, capture_output=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return None, f"rembg via {py} failed: {e}"
+    if r.returncode != 0 or not r.stdout.startswith(b"\x89PNG"):
+        return None, f"rembg via {py} failed: {r.stderr.decode(errors='replace')[-200:]}"
+    return r.stdout, f"rembg ({model}) via {py}"
+
+
+def cutout_method() -> str:
+    """What to_icon() will use, for the GUI/CLI to show."""
+    try:
+        import rembg  # noqa: F401
+        return f"rembg ({_rembg_model()})"
+    except ImportError:
+        py = rembg_python()
+        return f"rembg ({_rembg_model()}) via {py}" if py else "built-in (no rembg found)"
+
+
+def _components(fg: bytearray, w: int, h: int, keep_ratio: float = 0.01) -> bytearray:
+    """Keep every 4-connected foreground region at least keep_ratio of the largest (drops specks only)."""
     from collections import deque
     label = bytearray(w * h)
-    best: list[int] = []
+    regions: list[list[int]] = []
     for start in range(w * h):
         if not fg[start] or label[start]:
             continue
@@ -297,50 +403,63 @@ def _components(fg: bytearray, w: int, h: int) -> bytearray:
                     label[j] = 1
                     region.append(j)
                     q.append(j)
-        if len(region) > len(best):
-            best = region
+        regions.append(region)
     keep = bytearray(w * h)
-    for i in best:
-        keep[i] = 1
+    if not regions:
+        return keep
+    biggest = max(map(len, regions))
+    for region in regions:
+        if len(region) >= biggest * keep_ratio:
+            for i in region:
+                keep[i] = 1
     return keep
 
 
-def to_icon(data: bytes, size: int = 512, bright: int = 140, gray: int = 48) -> "Image.Image":
-    """Cut the subject out of a render on a light, plain-ish background (gradients, floor reflections
-    and soft shadows included): background = bright, low-saturation pixels connected to the image edge.
-    Keep the largest remaining object, crop, pad to a square with a small margin, scale to `size`."""
+def to_icon(data: bytes, size: int = 512, log=lambda s: None) -> "Image.Image":
+    """Cut the subject out of a render on a plain-ish backdrop, crop, pad to a square, scale to `size`.
+
+    A segmentation model (see remove_background) when one is reachable; else a flood fill from the image edge
+    that only spreads through backdrop-colored pixels or smooth steps away from them (gradients, soft shadows),
+    so light-gray metal behind a crisp edge stays part of the icon. Every sizable piece is kept."""
     from collections import deque
 
     from PIL import Image, ImageFilter
-    try:  # a proper segmentation model does better than heuristics — use it when the user has it
-        from rembg import remove as _rembg
-    except ImportError:
-        _rembg = None
-    if _rembg is not None:
-        with Image.open(io.BytesIO(_rembg(data))) as cut:
-            rgba = cut.convert("RGBA")
+    cut, how = remove_background(data)
+    if cut is not None:
+        log(f"background removed with {how}")
+        with Image.open(io.BytesIO(cut)) as im:
+            rgba = im.convert("RGBA")
         rgba.thumbnail((size, size))
         return _square(rgba, size)
+    log(f"background removed with the built-in cutter ({how}; install rembg for cleaner results)")
     with Image.open(io.BytesIO(data)) as src:
         im = src.convert("RGB")
     im.thumbnail((size, size))
     w, h = im.size
-    hsv = im.convert("HSV").tobytes()
+    px = im.tobytes()
     border = [*range(w), *range((h - 1) * w, h * w), *range(0, h * w, w), *range(w - 1, h * w, w)]
-    vb = sorted(hsv[3 * i + 2] for i in border)[len(border) // 2]  # background tone from the edges
-    if vb >= bright:   # light backdrop (incl. gradients, reflections, soft shadows)
-        cand = bytearray(1 if hsv[3 * i + 2] > bright and hsv[3 * i + 1] < gray else 0 for i in range(w * h))
-    else:              # dark/mid backdrop: pixels close to the edge tone
-        cand = bytearray(1 if abs(hsv[3 * i + 2] - vb) < 34 and hsv[3 * i + 1] < gray else 0 for i in range(w * h))
+    edge = sorted((px[3 * i], px[3 * i + 1], px[3 * i + 2]) for i in border)
+    bgc = tuple(sorted(c[k] for c in edge)[len(edge) // 2] for k in range(3))     # backdrop color
+
+    def dist_bg(i):
+        return abs(px[3 * i] - bgc[0]) + abs(px[3 * i + 1] - bgc[1]) + abs(px[3 * i + 2] - bgc[2])
+
+    def step(i, j):
+        return abs(px[3 * i] - px[3 * j]) + abs(px[3 * i + 1] - px[3 * j + 1]) + abs(px[3 * i + 2] - px[3 * j + 2])
+
+    near, far, smooth = 36, 150, 9        # summed RGB differences
     bg = bytearray(w * h)
-    q = deque(i for i in border if cand[i])
+    q = deque(i for i in border if dist_bg(i) < near)
     for i in q:
         bg[i] = 1
     while q:
         i = q.popleft()
         x, y = i % w, i // w
         for j in (i - 1 if x else -1, i + 1 if x < w - 1 else -1, i - w if y else -1, i + w if y < h - 1 else -1):
-            if j >= 0 and cand[j] and not bg[j]:
+            if j < 0 or bg[j]:
+                continue
+            d = dist_bg(j)
+            if d < near or (d < far and step(i, j) < smooth):
                 bg[j] = 1
                 q.append(j)
     fg = _components(bytearray(0 if b else 1 for b in bg), w, h)

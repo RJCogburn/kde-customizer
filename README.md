@@ -170,8 +170,11 @@ kdec icons mytheme.toml --prompts > prompts.txt                              # f
 kdec icons mytheme.toml --import ~/Pictures/my-icons                         # …then import (folder.png, …)
 ```
 
-Signature icons are kept in a folder next to the theme file and bundled into exports. Installing
-`rembg` (`pip install rembg`) gives cleaner cut-outs for rendered icons.
+Signature icons are kept in a folder next to the theme file and bundled into exports. Rendered icons get their
+background cut out by a segmentation model (rembg) when one is reachable — installed for kde-customizer, or the
+one your image AI already ships (Fooocus, ComfyUI and A1111 have it; it's found automatically while the AI runs)
+— and by a built-in cutter otherwise. The raw renders are kept, so **Re-cut backgrounds** (or
+`kdec icons mytheme.toml --recut`) redoes the cut-outs later without rendering again.
 
 ## Theme spec
 

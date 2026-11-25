@@ -132,8 +132,13 @@ class IconsTab(QWidget):
         imp = QPushButton(QIcon.fromTheme("document-import"), "Import images…")
         imp.setToolTip("Import a folder of images named after the icons, e.g. folder.png, user-home.png")
         imp.clicked.connect(self.import_dir)
+        self.recut_btn = QPushButton(QIcon.fromTheme("edit-cut"), "Re-cut backgrounds")
+        self.recut_btn.setToolTip("Cut the background out of the kept renders again (selected icons, or all).\n"
+                                  "Uses rembg when it's installed here or in your image AI (Fooocus, ComfyUI…).")
+        self.recut_btn.clicked.connect(self.recut)
         row.addWidget(prompts)
         row.addWidget(imp)
+        row.addWidget(self.recut_btn)
         row.addStretch()
         sv.addLayout(row)
         self.status = QLabel(wordWrap=True)
@@ -213,7 +218,7 @@ class IconsTab(QWidget):
             self._say(str(e), True)
             return
         self.s.setValue("icons/image_url", self.url.text().strip())
-        self._say(f"Found {b.name} at {b.url}.")
+        self._say(f"Found {b.name} at {b.url}. Background removal: {imagegen.cutout_method()}.")
 
     def _prepare(self) -> tuple[spec.Theme, Path] | None:
         """Signature icons live next to the spec, so it must be saved first."""
@@ -265,6 +270,16 @@ class IconsTab(QWidget):
         QGuiApplication.clipboard().setText(signature.prompts_text(self.get_theme()))
         self._say("Prompts copied. Make each image in your app, save them with the file names shown, "
                   "then use Import images….")
+
+    def recut(self):
+        if self.thread:
+            return
+        sig = self._sig_dir()
+        if not sig or not (sig / "raw").is_dir():
+            self._say("No kept renders to re-cut (renders are kept from v0.1.17 on; remake the icons once).", True)
+            return
+        only = self._selected() or None
+        self._run(lambda log: signature.recut(sig, only, log=log), "image", sig)
 
     def remove(self):
         slots = self._selected()
