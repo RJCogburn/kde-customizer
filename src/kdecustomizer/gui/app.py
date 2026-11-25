@@ -215,6 +215,8 @@ class Main(QMainWindow):
 
         act("New", "document-new", self.new, QKeySequence.New)
         act("Open…", "document-open", self.open, QKeySequence.Open)
+        act("From Desktop", "camera-photo", self.from_desktop, None,
+            "Start a theme from your current desktop: colors, styles, fonts, panels and wallpaper")
         act("Save", "document-save", self.save, QKeySequence.Save)
         tb.addSeparator()
         act("Build", "run-build", self.do_build, "Ctrl+B", "Write theme files to build/")
@@ -819,6 +821,20 @@ class Main(QMainWindow):
         if self._confirm_discard():
             self.path = None
             self.set_theme(spec.Theme(name="New Theme", id="org.kdecustomizer.newtheme"), False)
+
+    def from_desktop(self) -> None:
+        """New unsaved theme = snapshot of the running desktop."""
+        if not self._confirm_discard():
+            return
+        from .. import snapshot
+        try:
+            theme = snapshot.take("My Desktop")
+        except Exception as e:  # unreadable config: tell the user rather than crash
+            QMessageBox.critical(self, "Snapshot failed", str(e))
+            return
+        self.path = None
+        self.set_theme(theme, True)
+        self.statusBar().showMessage(snapshot.summary(theme).replace("\n", " · "), 10000)
 
     def load(self, path: Path) -> None:
         try:

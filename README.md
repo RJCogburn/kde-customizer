@@ -70,11 +70,13 @@ Ubuntu, Debian, Fedora, openSUSE and Arch, and attaches the files to the GitHub 
 
 Edit colors, panels, fonts and the rest in the tabs on the left. The preview on the right redraws as you
 type and uses the theme's own icon set. **Apply to desktop** installs the theme and switches to it.
+**From Desktop** starts a theme from what you're running now.
 
 **Command line:**
 
 ```sh
 kdec new mytheme.toml                  # starter spec
+kdec snapshot mydesktop.toml           # spec from your current desktop: colors, styles, fonts, panels, wallpaper
 kdec build mytheme.toml                # -> build/<Name>/
 kdec apply mytheme.toml --dry-run      # show what would change
 kdec apply mytheme.toml [--layout]     # install + apply (--layout also replaces your panels)

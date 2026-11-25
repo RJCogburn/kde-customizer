@@ -24,6 +24,20 @@ def cmd_new(a) -> int:
     return 0
 
 
+def cmd_snapshot(a) -> int:
+    from . import snapshot
+    path = Path(a.path)
+    if path.exists() and not a.force:
+        print(f"{path} exists (use --force)", file=sys.stderr)
+        return 1
+    name = a.name or path.stem.replace("-", " ").replace("_", " ").title()
+    t = snapshot.take(name)
+    spec.save(t, path)
+    print(f"wrote {path}")
+    print(snapshot.summary(t))
+    return 0
+
+
 def cmd_build(a) -> int:
     out = builder.build(spec.load(a.spec), a.out)
     print(f"built {out}")
@@ -162,6 +176,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--name")
     s.add_argument("--force", action="store_true")
     s.set_defaults(fn=cmd_new)
+
+    s = sub.add_parser("snapshot", help="save the current desktop (colors, styles, fonts, panels, wallpaper) as a spec")
+    s.add_argument("path")
+    s.add_argument("--name", help="theme name (default: from the file name)")
+    s.add_argument("--force", action="store_true")
+    s.set_defaults(fn=cmd_snapshot)
 
     for name, fn, hlp in [("build", cmd_build, "generate theme files into build/"),
                           ("export", cmd_export, "build and pack a shareable .tar.gz (includes wallpaper)"),
