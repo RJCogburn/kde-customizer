@@ -91,6 +91,16 @@ Someone you share an export with only needs `tar xzf Name.tar.gz && ./Name/insta
 Themes with `[login_screen]` ask for the admin password to theme the login screen; `./install.sh --no-login`
 skips that part.
 
+## Tests
+
+```sh
+pip install -e '.[gui,test]'
+QT_QPA_PLATFORM=offscreen pytest -q
+```
+
+The suite never touches your desktop: every test gets its own temporary `HOME` and XDG folders.
+GUI tests need PySide6 and the login-screen tests need `kwriteconfig6`; each group is skipped without them.
+
 ## Design with AI
 
 Type a request such as *“cozy autumn, warm browns, dock-style bottom panel”* or *“make the accent teal”*

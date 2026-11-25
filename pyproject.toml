@@ -14,6 +14,7 @@ dependencies = []
 [project.optional-dependencies]
 gui = ["PySide6>=6.6"]
 ai = ["anthropic>=2.8", "Pillow", "pypdf"]   # Claude API, image downscaling, PDF text for non-Claude AIs
+test = ["pytest"]
 
 [project.scripts]
 kdec = "kdecustomizer.cli:main"
@@ -22,3 +23,7 @@ kde-customizer = "kdecustomizer.gui.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]

@@ -105,6 +105,12 @@ Reference themes: `/usr/share/Kvantum/` (KvFlat is the closest to ours).
 cursors, decoration, splash) and the layout JS with `--resetLayout`. Anything else (fonts, decoration buttons,
 KWin effects, arbitrary `tweaks`) is written by `install.sh` with `kwriteconfig6`, then `qdbus6 org.kde.KWin /KWin reconfigure`.
 
+## Tests
+`tests/` (pytest; `pythonpath` set in pyproject). `conftest.py` gives every test a temp HOME + XDG dirs (autouse) and a
+fake `breeze_cursors` base (`cursor_base`). GUI tests run offscreen (skip without PySide6); login-script tests use the
+`KDEC_LOGIN_*` hooks (skip without kwriteconfig6); AI tests use a local fake OpenAI server, never a real provider.
+CI's `test` job runs the suite in an Arch container and gates releases. Add a test with every generator/feature change.
+
 ## Commands
 ```
 pip install -e '.[gui]'          # or run with PYTHONPATH=src python -m kdecustomizer.cli
@@ -116,6 +122,7 @@ kdec export examples/midnight.toml [out.tar.gz]  # shareable archive: build + wa
 kdec layout examples/midnight.toml         # live panel/wallpaper script via plasmashell evaluateScript
 kdec-gui examples/midnight.toml
 kdec check mytheme.toml                    # contrast + installed-theme warnings
+QT_QPA_PLATFORM=offscreen pytest -q        # test suite (pip install -e '.[gui,test]')
 kdec ai "warm autumn, dock panel" [--from mytheme.toml] [--provider claude-code(default)|claude|openai|gemini|openrouter|ollama|lmstudio --model M]
 kdec ai "..." --prompt-only                # prompt to paste into any chat AI
 kdec ai-guide                              # spec guide for coding agents — read it before writing a theme spec
