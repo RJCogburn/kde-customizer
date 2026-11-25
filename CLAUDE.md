@@ -61,8 +61,9 @@ same functions the generators use, so never derive colors in the GUI. Icons come
 bound methods of a widget (lambdas would run on the worker thread). AI provider settings live in QSettings
 (`~/.config/kdecustomizer/kdec-gui.conf`).
 The preview paints into a QImage first, so translucent Plasma surfaces can blur what is already drawn behind them
-(`_blur_behind`, when `[plasma] blur`). Kickoff: `Preview._launcher`, anchored to the first panel's launcher icon
-(click it or the "Launcher menu open" box). Tweaks tab = a File/Group/Key/Value table ↔ `theme.tweaks`
+(`_blur_behind`, when `[plasma] blur`). Popups (`Preview.popup`, "Show:" selector or click the panel item):
+`_launcher` (Kickoff), `_calendar` (clock), `_tray`, placed by `_place()` next to the item recorded in `_anchors`;
+`_dialog` = modal message box over the Files window (parent dimmed like KWin's dialogparent effect). Tweaks tab = a File/Group/Key/Value table ↔ `theme.tweaks`
 (`TWEAK_PRESETS` adds common rows; values parsed to bool/int/float/str).
 Offscreen screenshots for checking UI changes: `QT_QPA_PLATFORM=offscreen`, `w.grab().save(...)`.
 
@@ -128,8 +129,8 @@ FrameSvg only reads each element's bounding size, so pieces sit side by side on 
 Check shape changes by tiling the pieces with `QSvgRenderer.render(p, id, rect)` offscreen. `install.sh` copies it to `$DATA/plasma/desktoptheme/`
 and deletes `~/.cache/plasma_theme_<Slug>*` so re-installs pick up new colors. `Theme.plasma_style_name` is what LnF sets.
 
-## Roadmap (not built yet)
-1. GUI: previews of more Plasma popups (system tray, calendar) and app dialogs.
+## Roadmap
+Everything planned is built. Ideas: SDDM themes for distros without Plasma Login; more tweak presets.
 
 ## Packaging / releases
 `packaging/appimage/build.sh` (python-appimage -> `trim-runtime.sh` -> AppImage; leaves `build/appdir`) then

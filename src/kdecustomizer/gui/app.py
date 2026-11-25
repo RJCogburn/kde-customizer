@@ -114,6 +114,10 @@ class FontField(QWidget):
             self.edit.setText(f"{f.family()},{f.pointSize()}")
 
 
+# Preview "Show:" choices: (label, Preview.popup key)
+POPUPS = [("Desktop", ""), ("Launcher menu", "launcher"), ("Calendar", "calendar"),
+          ("System tray", "tray"), ("Dialog", "dialog")]
+
 # "Add common" tweaks: (menu label, [(file, group, key, value)])
 TWEAK_PRESETS = [
     ("Wobbly windows", [("kwinrc", "Plugins", "wobblywindowsEnabled", True)]),
@@ -206,12 +210,16 @@ class Main(QMainWindow):
         rv.setContentsMargins(6, 4, 0, 0)
         rv.setSpacing(2)
         bar = QHBoxLayout()
-        self.show_launcher = QCheckBox("Launcher menu open")
-        self.show_launcher.setToolTip("Preview the app launcher (you can also click its icon in the panel)")
-        self.show_launcher.toggled.connect(self.preview.set_launcher_open)
-        self.preview.launcherToggled.connect(self.show_launcher.setChecked)
+        self.popup = QComboBox()
+        for label, key in POPUPS:
+            self.popup.addItem(label, key)
+        self.popup.setToolTip("Preview a popup or dialog (you can also click the launcher, clock or tray "
+                              "in the preview's panel)")
+        self.popup.currentIndexChanged.connect(lambda i: self.preview.set_popup(self.popup.itemData(i)))
+        self.preview.popupChanged.connect(lambda key: self.popup.setCurrentIndex(max(0, self.popup.findData(key))))
         bar.addStretch()
-        bar.addWidget(self.show_launcher)
+        bar.addWidget(QLabel("Show:"))
+        bar.addWidget(self.popup)
         rv.addLayout(bar)
         rv.addWidget(self.preview, 1)
 

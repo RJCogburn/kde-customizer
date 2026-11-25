@@ -91,7 +91,7 @@ _TRAY_ICONS = [("network-wireless", "network-wired"), ("audio-volume-high",), ("
 
 
 class Preview(QWidget):
-    launcherToggled = Signal(bool)
+    popupChanged = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -99,11 +99,12 @@ class Preview(QWidget):
         self.icons = IconCache()
         self._wp_path = ""
         self._wp = QPixmap()
-        self.launcher_open = False      # draw the Kickoff menu open over the desktop
-        self._launcher_rect: QRectF | None = None
-        self._kickoff: tuple[QRectF, str] | None = None   # launcher icon box + panel location (canvas coords)
+        self.popup = ""                 # open popup: "" | launcher | calendar | tray | dialog
+        self._popup_rect: QRectF | None = None
+        self._anchors: dict[str, tuple[QRectF, str]] = {}   # popup -> (panel item box, panel location), canvas coords
+        self._app_rect: QRectF | None = None
         self._xform = (0.0, 0.0, 1.0)   # widget -> canvas: offset x, offset y, scale
-        self.setToolTip("Click the app launcher in the panel to open its menu")
+        self.setToolTip("Click the launcher, clock or system tray in the panel to open its popup")
         self.setMinimumSize(480, 300)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
@@ -118,19 +119,25 @@ class Preview(QWidget):
     def sizeHint(self) -> QSize:
         return QSize(800, 500)
 
-    def set_launcher_open(self, on: bool) -> None:
-        if on != self.launcher_open:
-            self.launcher_open = on
-            self.launcherToggled.emit(on)
+    POPUPS = ("launcher", "calendar", "tray", "dialog")
+
+    def set_popup(self, name: str) -> None:
+        name = name if name in self.POPUPS else ""
+        if name != self.popup:
+            self.popup = name
+            self.popupChanged.emit(name)
             self.update()
 
     def mousePressEvent(self, e) -> None:
         ox, oy, k = self._xform
         pt = QPointF((e.position().x() - ox) / k, (e.position().y() - oy) / k)
-        if self._kickoff and self._kickoff[0].contains(pt):
-            self.set_launcher_open(not self.launcher_open)
-        elif self.launcher_open and not (self._launcher_rect and self._launcher_rect.contains(pt)):
-            self.set_launcher_open(False)   # click outside closes it, like the real thing
+        for name, (box, _) in self._anchors.items():
+            if box.contains(pt):
+                self.set_popup("" if self.popup == name else name)
+                break
+        else:
+            if self.popup and not (self._popup_rect and self._popup_rect.contains(pt)):
+                self.set_popup("")          # click outside closes it, like the real thing
         super().mousePressEvent(e)
 
     # --- painting --------------------------------------------------------------
@@ -166,14 +173,18 @@ class Preview(QWidget):
         self._wallpaper(p)
         area = self._usable_area()
         self._konsole(p, QRectF(area.x() + 90, area.y() + 60, 560, 330))
-        self._app_window(p, QRectF(area.x() + 380, area.y() + 150, 700, 440))
-        self._kickoff = None
-        self._launcher_rect = None
+        self._app_rect = QRectF(area.x() + 380, area.y() + 150, 700, 440)
+        self._app_window(p, self._app_rect)
+        self._anchors = {}
+        self._popup_rect = None
+        if self.popup == "dialog":
+            self._dialog(p, self._app_rect)
         for panel in t.panels:
             self._panel(p, panel)
-        if self.launcher_open and self._kickoff:
-            self._launcher(p, *self._kickoff)
-        else:
+        if self.popup in self._anchors:
+            box, loc = self._anchors[self.popup]
+            {"launcher": self._launcher, "calendar": self._calendar, "tray": self._tray}[self.popup](p, box, loc)
+        elif not self.popup:
             self._notification(p, area)
         self._pointer(p, QPointF(area.x() + 760, area.y() + 470))
         p.end()
@@ -351,6 +362,7 @@ class Preview(QWidget):
                     p.drawRoundedRect(bar, 1.5, 1.5)
                 self._icon(p, names, c, icon)
         elif kind == "tray":
+            self._anchor(p, "tray", box, location)
             small = int(icon * 0.6)
             step = cell * 0.62
             for i, names in enumerate(_TRAY_ICONS):
@@ -358,18 +370,14 @@ class Preview(QWidget):
                      else QPointF(box.x() + step * (i + 0.5), box.center().y()))
                 self._icon(p, names, c, small)
         elif kind == "clock":
+            self._anchor(p, "calendar", box, location)
             p.setPen(fg)
             p.setFont(_font(self.theme.fonts.general, 10))
             now = _dt.datetime.now()
             text = now.strftime("%H:%M") if vertical or cell < 40 else now.strftime("%H:%M\n%m/%d")
             p.drawText(box, Qt.AlignCenter, text)
         elif kind == "kickoff":
-            if self._kickoff is None:
-                self._kickoff = (QRectF(box), location)
-            if self.launcher_open and self._kickoff[0] == box:
-                p.setPen(Qt.NoPen)
-                p.setBrush(self.c("Colors:Selection", "BackgroundNormal", 0.3))
-                p.drawRoundedRect(box.adjusted(3, 3, -3, -3), 5, 5)
+            self._anchor(p, "launcher", box, location)
             self._icon(p, ("start-here-kde-plasma", "start-here-kde", "start-here"), box.center(), icon)
         elif kind == "showdesktop":
             self._icon(p, ("user-desktop", "desktop"), box.center(), int(icon * 0.7))
@@ -384,25 +392,170 @@ class Preview(QWidget):
         else:
             self._icon(p, ("application-x-plasma", "plasma", "preferences-desktop-plasma"), box.center(), icon)
 
-    # --- launcher (Kickoff) -------------------------------------------------------------
-    def _launcher(self, p: QPainter, anchor: QRectF, location: str) -> None:
-        """Plasma 6 Kickoff, opened from `anchor` (the launcher icon) on a panel at `location`."""
-        w, h, gap = 560.0, 500.0, 6.0
+    # --- popups -------------------------------------------------------------------------
+    def _anchor(self, p: QPainter, name: str, box: QRectF, location: str) -> None:
+        """Remember the first panel item a popup opens from; highlight it while that popup is open."""
+        if name in self._anchors:
+            return
+        self._anchors[name] = (QRectF(box), location)
+        if self.popup == name:
+            p.setPen(Qt.NoPen)
+            p.setBrush(self.c("Colors:Selection", "BackgroundNormal", 0.3))
+            p.drawRoundedRect(box.adjusted(3, 3, -3, -3), 5, 5)
+
+    def _place(self, anchor: QRectF, location: str, w: float, h: float, gap: float = 6.0) -> QRectF:
+        """Popup rect next to a panel item, kept on screen."""
         if location == "bottom":
-            x, y = anchor.left(), anchor.top() - gap - h
+            x, y = anchor.center().x() - w / 2, anchor.top() - gap - h
         elif location == "top":
-            x, y = anchor.left(), anchor.bottom() + gap
+            x, y = anchor.center().x() - w / 2, anchor.bottom() + gap
         elif location == "left":
-            x, y = anchor.right() + gap, anchor.top()
+            x, y = anchor.right() + gap, anchor.center().y() - h / 2
         else:
-            x, y = anchor.left() - gap - w, anchor.top()
+            x, y = anchor.left() - gap - w, anchor.center().y() - h / 2
         x = max(8.0, min(x, W - w - 8))
         y = max(8.0, min(y, H - h - 8))
-        rect = QRectF(x, y, w, h)
-        self._launcher_rect = rect
+        return QRectF(x, y, w, h)
+
+    def _popup_frame(self, p: QPainter, rect: QRectF) -> QPainterPath:
+        """Shadow + Plasma background; returns the clip path for headers/footers."""
+        self._popup_rect = rect
         radius = self._plasma_radius()
         self._shadow(p, rect, radius, 0.55)
         self._plasma_bg(p, rect, radius)
+        clip = QPainterPath()
+        clip.addRoundedRect(rect, radius, radius)
+        return clip
+
+    def _heading(self, p: QPainter, clip: QPainterPath, band: QRectF, top: bool = True) -> None:
+        """PlasmoidHeading: Header colors band with a hairline toward the content."""
+        p.save()
+        p.setClipPath(clip, Qt.IntersectClip)
+        p.fillRect(band, self.c("Colors:Header", "BackgroundNormal", 0.55 if top else 0.35))
+        p.setPen(QPen(self.c("Colors:Window", "ForegroundNormal", 0.12), 1))
+        p.drawLine(*( (band.bottomLeft(), band.bottomRight()) if top else (band.topLeft(), band.topRight()) ))
+        p.restore()
+
+    def _calendar(self, p: QPainter, anchor: QRectF, location: str) -> None:
+        """Digital clock popup: today's date and a month grid with today highlighted."""
+        import calendar as _cal
+        rect = self._place(anchor, location, 380, 380)
+        clip = self._popup_frame(p, rect)
+        fg = self.c("Colors:Window", "ForegroundNormal")
+        dim = self.c("Colors:Window", "ForegroundInactive")
+        general = self.theme.fonts.general
+        today = _dt.date.today()
+        head = QRectF(rect.x(), rect.y(), rect.width(), 56)
+        self._heading(p, clip, head)
+        p.setPen(fg)
+        p.setFont(_font(general, 13, bold=True))
+        p.drawText(head.adjusted(18, 0, 0, 0), Qt.AlignVCenter, today.strftime("%B %Y"))
+        p.setPen(QPen(fg, 1.6, Qt.SolidLine, Qt.RoundCap))
+        for i, d in enumerate((-1, 1)):
+            c = QPointF(head.right() - 54 + i * 30, head.center().y())
+            p.drawLine(c + QPointF(3 * -d, -5), c + QPointF(-3 * -d, 0))
+            p.drawLine(c + QPointF(-3 * -d, 0), c + QPointF(3 * -d, 5))
+        grid = QRectF(rect.x() + 14, head.bottom() + 8, rect.width() - 28, rect.bottom() - head.bottom() - 22)
+        cw, ch = grid.width() / 7, grid.height() / 7
+        p.setFont(_font(general, 9))
+        p.setPen(dim)
+        for i, name in enumerate(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]):
+            p.drawText(QRectF(grid.x() + i * cw, grid.y(), cw, ch), Qt.AlignCenter, name)
+        p.setFont(_font(general, 10))
+        weeks = _cal.Calendar(0).monthdatescalendar(today.year, today.month)
+        while len(weeks) < 6:
+            last = weeks[-1][-1]
+            weeks.append([last + _dt.timedelta(days=i + 1) for i in range(7)])
+        for r, week in enumerate(weeks[:6]):
+            for c, day in enumerate(week):
+                cell = QRectF(grid.x() + c * cw, grid.y() + (r + 1) * ch, cw, ch)
+                if day == today:
+                    p.setPen(QPen(self.c("Colors:Selection", "BackgroundNormal"), 1))
+                    p.setBrush(self.c("Colors:Selection", "BackgroundNormal", 0.35))
+                    p.drawRoundedRect(cell.adjusted(3, 2, -3, -2), 4, 4)
+                p.setPen(fg if day.month == today.month else dim)
+                p.drawText(cell, Qt.AlignCenter, str(day.day))
+
+    def _tray(self, p: QPainter, anchor: QRectF, location: str) -> None:
+        """Expanded system tray: heading + grid of status items."""
+        rect = self._place(anchor, location, 420, 330)
+        clip = self._popup_frame(p, rect)
+        fg = self.c("Colors:Window", "ForegroundNormal")
+        general = self.theme.fonts.general
+        head = QRectF(rect.x(), rect.y(), rect.width(), 52)
+        self._heading(p, clip, head)
+        p.setPen(fg)
+        p.setFont(_font(general, 12, bold=True))
+        p.drawText(head.adjusted(18, 0, 0, 0), Qt.AlignVCenter, "Status and Notifications")
+        self._icon(p, ("window-pin", "pin"), QPointF(head.right() - 26, head.center().y()), 18)
+        items = [("Audio Volume", ("audio-volume-high",)), ("Battery", ("battery-080", "battery")),
+                 ("Bluetooth", ("preferences-system-bluetooth", "bluetooth")),
+                 ("Clipboard", ("klipper", "edit-paste")), ("Networks", ("network-wireless", "network-wired")),
+                 ("Notifications", ("notifications",)), ("Displays", ("preferences-desktop-display", "video-display")),
+                 ("Updates", ("system-software-update", "update-none"))]
+        grid = QRectF(rect.x() + 10, head.bottom() + 10, rect.width() - 20, rect.bottom() - head.bottom() - 20)
+        cw, ch = grid.width() / 4, grid.height() / 2
+        p.setFont(_font(general, 9))
+        for i, (label, icons) in enumerate(items):
+            cell = QRectF(grid.x() + (i % 4) * cw, grid.y() + (i // 4) * ch, cw, ch)
+            if i == 4:      # hovered
+                p.setPen(QPen(self.c("Colors:Selection", "BackgroundNormal", 0.6), 1))
+                p.setBrush(self.c("Colors:Selection", "BackgroundNormal", 0.15))
+                p.drawRoundedRect(cell.adjusted(4, 4, -4, -4), 4, 4)
+            self._icon(p, icons, QPointF(cell.center().x(), cell.y() + ch * 0.4), 32)
+            p.setPen(fg)
+            p.drawText(QRectF(cell.x() + 2, cell.y() + ch * 0.64, cw - 4, 36), Qt.AlignHCenter | Qt.TextWordWrap, label)
+
+    def _dialog(self, p: QPainter, parent: QRectF) -> None:
+        """Modal app dialog over the Files window (KWin's dialog-parent effect dims the parent)."""
+        s = self.c
+        wr = self.theme.widgets.radius if self.theme.widgets.generate else 4
+        top, bot = self._window_radius()
+        dimmed = QPainterPath()
+        dimmed.addRoundedRect(parent, top, top)
+        p.save()
+        p.setClipPath(dimmed, Qt.IntersectClip)
+        p.fillRect(parent, QColor(0, 0, 0, 90))
+        p.restore()
+        rect = QRectF(parent.center().x() - 230, parent.y() + 70, 460, 200)
+        self._popup_rect = rect
+        self._shadow(p, rect, top, 1.0)
+        self._window_bg(p, rect, s("Colors:Window", "BackgroundNormal"))
+        tb = self._titlebar(p, rect, "Close Document — Files", True)
+        body = QRectF(rect.x(), tb.bottom(), rect.width(), rect.bottom() - tb.bottom())
+        self._icon(p, ("dialog-warning",), QPointF(body.x() + 44, body.y() + 46), 48)
+        p.setPen(s("Colors:Window", "ForegroundNormal"))
+        p.setFont(_font(self.theme.fonts.general, 10))
+        p.drawText(QRectF(body.x() + 86, body.y() + 18, body.width() - 104, 64), Qt.TextWordWrap | Qt.AlignVCenter,
+                   "The document “notes.txt” has been modified.\nDo you want to save your changes?")
+        x = body.right() - 14
+        for label, primary in (("Cancel", False), ("Discard", False), ("Save", True)):
+            bw = 92
+            b = QRectF(x - bw, body.bottom() - 46, bw, 30)
+            x -= bw + 8
+            if primary:
+                p.setPen(Qt.NoPen)
+                p.setBrush(s("Colors:Selection", "BackgroundNormal"))
+                p.drawRoundedRect(b, wr, wr)
+                p.setPen(s("Colors:Selection", "ForegroundNormal"))
+            else:
+                p.setPen(QPen(s("Colors:Button", "ForegroundNormal", 0.18), 1))
+                p.setBrush(s("Colors:Button", "BackgroundNormal"))
+                p.drawRoundedRect(b, wr, wr)
+                p.setPen(s("Colors:Button", "ForegroundNormal"))
+            p.drawText(b, Qt.AlignCenter, label)
+
+    # --- launcher (Kickoff) -------------------------------------------------------------
+    def _launcher(self, p: QPainter, anchor: QRectF, location: str) -> None:
+        """Plasma 6 Kickoff, opened from `anchor` (the launcher icon) on a panel at `location`."""
+        w, h = 560.0, 500.0
+        rect = self._place(anchor, location, w, h)
+        if location in ("bottom", "top"):       # Kickoff lines up with the launcher's left edge
+            rect.moveLeft(max(8.0, min(anchor.left(), W - w - 8)))
+        elif location in ("left", "right"):
+            rect.moveTop(max(8.0, min(anchor.top(), H - h - 8)))
+        clip = self._popup_frame(p, rect)
+        radius = self._plasma_radius()
 
         fg = self.c("Colors:Window", "ForegroundNormal")
         dim = self.c("Colors:Window", "ForegroundInactive")
@@ -410,14 +563,7 @@ class Preview(QWidget):
 
         # header: avatar, search field (PlasmoidHeading = Header colors)
         head = QRectF(rect.x(), rect.y(), w, 62)
-        clip = QPainterPath()
-        clip.addRoundedRect(rect, radius, radius)
-        p.save()
-        p.setClipPath(clip, Qt.IntersectClip)
-        p.fillRect(head, self.c("Colors:Header", "BackgroundNormal", 0.55))
-        p.setPen(QPen(self.c("Colors:Window", "ForegroundNormal", 0.12), 1))
-        p.drawLine(head.bottomLeft(), head.bottomRight())
-        p.restore()
+        self._heading(p, clip, head)
         self._icon(p, ("user-identity", "im-user", "user"), QPointF(head.x() + 34, head.center().y()), 34)
         search = QRectF(head.x() + 64, head.center().y() - 16, w - 64 - 52, 32)
         wr = self.theme.widgets.radius if self.theme.widgets.generate else 4
@@ -473,12 +619,7 @@ class Preview(QWidget):
 
         # footer: Applications / Places, power buttons
         foot = QRectF(rect.x(), rect.bottom() - foot_h, w, foot_h)
-        p.save()
-        p.setClipPath(clip, Qt.IntersectClip)
-        p.fillRect(foot, self.c("Colors:Header", "BackgroundNormal", 0.35))
-        p.setPen(QPen(self.c("Colors:Window", "ForegroundNormal", 0.12), 1))
-        p.drawLine(foot.topLeft(), foot.topRight())
-        p.restore()
+        self._heading(p, clip, foot, top=False)
         p.setFont(_font(general, 10))
         x0 = foot.x() + 10
         for i, (label, icons) in enumerate([("Applications", ("applications-all", "view-list-icons")),

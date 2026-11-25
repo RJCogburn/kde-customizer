@@ -70,8 +70,9 @@ Ubuntu, Debian, Fedora, openSUSE and Arch, and attaches the files to the GitHub 
 
 Edit colors, panels, fonts and the rest in the tabs on the left. The preview on the right redraws as you
 type and uses the theme's own icon set. **Apply to desktop** installs the theme and switches to it.
-**From Desktop** starts a theme from what you're running now. Tick **Launcher menu open** (or click the
-launcher in the preview's panel) to see the app menu in your theme. The **Tweaks** tab edits any KDE setting,
+**From Desktop** starts a theme from what you're running now. **Show:** above the preview opens the app
+launcher, calendar, system tray or an app dialog in your theme (or click the launcher, clock or tray in the
+preview's panel). The **Tweaks** tab edits any KDE setting,
 with ready-made rows for popular ones (wobbly windows, magic lamp, dim inactive windows, faster animations…).
 
 **Command line:**
