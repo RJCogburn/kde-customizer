@@ -111,10 +111,14 @@ jobs:
           Xvfb :99 -screen 0 1280x800x24 & sleep 2
           export DISPLAY=:99
           mkdir -p shots
-          plymouthd --no-daemon --debug --debug-file=shots/plymouthd.log --tty=/dev/null --no-boot-log \
-            --graphical-boot --kernel-command-line="splash plymouth.theme=kdec-midnight" &
+          # plymouthd wants a real terminal for its console device: run it on a pty (script); without udev it
+          # falls back to the AUTO renderer, which tries X11 first. The log goes where plymouth.debug=stream: says.
+          script -qfec "plymouthd --no-daemon --debug --tty=\$(tty) --no-boot-log --graphical-boot \
+            --kernel-command-line='splash plymouth.theme=kdec-midnight plymouth.debug=stream:$PWD/shots/plymouthd.log'" \
+            /dev/null > shots/plymouthd.out 2>&1 &
           sleep 2
-          plymouth show-splash; sleep 3
+          plymouth show-splash || { cat shots/plymouthd.out; tail -60 shots/plymouthd.log || true; exit 1; }
+          sleep 3
           shot() { xwd -root -display :99 | convert xwd:- "shots/$1.png"; }
           shot 1-splash
           (plymouth ask-for-password --prompt="Please enter passphrase for disk cryptroot" > /dev/null || true) &
