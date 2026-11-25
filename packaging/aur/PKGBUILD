@@ -16,7 +16,7 @@ optdepends=('claude-code: AI design with your Claude Code login (default AI prov
             'papirus-icon-theme: a good base for generated icon sets'
             'kvantum: apply generated app styles ([widgets] generate)')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('67da4afef408e07ecdf34611178ee10ea3cf4e1ebf1d744e79cdebeb0134b79c')
+sha256sums=('0c3810c2f5d7655447dfe282962b97f9959542defbf3cb55abbdd54f24692d7b')
 
 build() {
   cd "$pkgname-$pkgver"
