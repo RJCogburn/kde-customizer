@@ -94,6 +94,8 @@ color scheme, Plasma style, Konsole scheme, global theme package, panel layout a
 - `[boot_splash] generate = true` makes a Plymouth boot splash (theme name + accent progress bar, also the
   disk-unlock password prompt), `background` gradient | solid, `text` ("" = the theme name). Installing asks for
   the admin password and rebuilds the initramfs, so only enable it when asked.
+- `[apps]` kitty / alacritty / wezterm / ghostty / vscode (all true by default): matching terminal and editor
+  themes from the same colors, applied only where the app is installed. Leave them unless asked.
 - `[gtk]` `generate` (default true) gives GNOME / GTK 4 (libadwaita) apps the palette; `flatpak = true` also
   lets Flatpak apps read it (changes their permissions: only when asked).
 - `splash`: keep "org.kde.Breeze" unless asked. `[splash_screen] generate = true` (recommended) makes a
@@ -115,6 +117,8 @@ color scheme, Plasma style, Konsole scheme, global theme package, panel layout a
   org.kde.plasma.pager, org.kde.plasma.marginsseparator, org.kde.plasma.panelspacer (flexible gap),
   org.kde.plasma.systemtray, org.kde.plasma.digitalclock, org.kde.plasma.showdesktop.
 - `konsole = true` adds a matching terminal scheme.
+- `[iconset] app_icons = "recolor"` also restyles every installed app's icon: its own logo in its own colors on
+  a graphite gradient plate with an accent rim (free-standing logos unchanged); "keep" (default) leaves them.
 - `[iconset]` builds a matching icon theme: `generate = true` recolors `base` (an installed SVG icon theme,
   e.g. Papirus-Dark, breeze-dark) to the accent and replaces `icons`. Set `style` to a short visual
   description for custom signature icons (e.g. "brushed champagne-gold metal, dark graphite glass").

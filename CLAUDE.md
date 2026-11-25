@@ -25,6 +25,11 @@ Target system: Plasma 6.8, Qt 6, Python 3.11+ (dev box runs 3.14, CachyOS).
   near the base's dominant folder hue -> accent, HLS shift) and `Inherits=` the base. Papirus color variants
   (`folder-red*`…) and symbolic icons are skipped. Any icon name present in our theme must exist in all the
   base's sizes for it, or KDE won't fall back to the base for missing sizes.
+- `appicons.py` — `app_icons = "recolor"`: every visible app's icon (`Icon=` of .desktop files incl. Flatpak
+  exports; found along the base theme's Inherits chain, user hicolor uses hicolor's index) rendered at 256 px;
+  `find_plate()` = ring just inside the edges (else dominant color) — the plate is redrawn as a graphite gradient
+  + accent rim (Qt Difference-blend mask), the logo keeps its colors (dark unsaturated logos inverted); no plate =
+  left alone. Written as SVG-wrapped PNGs in `apps-recolored/scalable` (after signature dirs, which win).
 - `signature.py` — 14 `SLOTS` made custom: `svg` (AI JSON of SVGs, sanitized), `image` (local image AI), or
   `import`. Stored in `<spec dir>/<slug>-icons/{svg,png}/<slot>.*`; they replace recolored versions.
 - `imagegen.py` — Fooocus (Gradio 3 queue over a stdlib websocket; settings matched by label), ComfyUI,
@@ -48,6 +53,15 @@ in gtk.css (KDE's GTK integration owns gtk.css's `colors.css` import and rewrite
 with `generate = false` remove that line and file. `flatpak = true` adds `flatpak override --user
 --filesystem=xdg-config/gtk-4.0:ro`. Check with a real libadwaita window: `/usr/bin/python3` + gi Adw, a temp
 `XDG_CONFIG_HOME`, `Gtk.WidgetPaintable` → `render_texture` → PNG (no screenshot needed).
+
+## Other terminals / editors (`[apps]`, all on; only where installed)
+`generators/apps.py` → `build/<Slug>/apps/`: kitty `.conf`, Alacritty `kde-customizer.toml`, WezTerm scheme `.toml`,
+Ghostty theme, VS Code `.vsix` (zip: `[Content_Types].xml`, `extension.vsixmanifest`, `extension/package.json`,
+theme JSON; installed with `code --install-extension`). Terminal colors = `konsole.ansi()`; VS Code workbench =
+`colors.scheme()`. install.sh: kitty/Ghostty get a `# BEGIN_KDEC_THEME … # END_KDEC_THEME` block (rewritten each time,
+removed when off); Alacritty's importing file overrides imports, so its `[colors.*]` tables get a `#kdec# ` prefix
+(one-time `.kdec-backup`), our file goes first in `general.import`; turning it off restores the file byte-for-byte.
+VS Code settings.json is never edited (JSONC). Check a vsix with `code --extensions-dir <tmp> --install-extension`.
 
 ## Boot splash (`[boot_splash] generate = true`, opt-in)
 `generators/bootsplash.py` → `build/<Slug>/boot/kdec-<slug>/` = Plymouth `script` theme (`.plymouth`, `.script`, PNGs

@@ -13,12 +13,17 @@ from . import spec
 
 
 def cmd_new(a) -> int:
-    path = Path(a.path)
+    if a.path.endswith(".toml") or "/" in a.path:
+        path = Path(a.path)
+        name = a.name or path.stem.replace("-", " ").title()
+    else:                                   # a theme name: its own folder in the themes folder
+        name = a.name or a.path
+        path = spec.default_path(spec.Theme(name=name))
     if path.exists() and not a.force:
         print(f"{path} exists (use --force)", file=sys.stderr)
         return 1
-    name = a.name or path.stem.replace("-", " ").title()
-    t = spec.Theme(name=name, id=f"org.kdecustomizer.{re.sub(r'[^a-z0-9]+', '', name.lower())}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    t = spec.Theme(name=name, id=spec.id_for(name))
     spec.save(t, path)
     print(f"wrote {path}")
     return 0
@@ -171,8 +176,8 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="kdec", description="Build and apply KDE Plasma themes")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("new", help="create a starter theme spec")
-    s.add_argument("path")
+    s = sub.add_parser("new", help="create a starter theme spec (a name -> its own folder in the themes folder)")
+    s.add_argument("path", help='a name ("Neon Night") or a .toml path')
     s.add_argument("--name")
     s.add_argument("--force", action="store_true")
     s.set_defaults(fn=cmd_new)

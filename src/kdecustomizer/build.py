@@ -9,7 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from . import cursorset, iconset
-from .generators import aurorae, bootsplash, colors, gtk, konsole, kvantum, layout, lookandfeel, loginscreen, plasmastyle, splash
+from .generators import apps, aurorae, bootsplash, colors, gtk, konsole, kvantum, layout, lookandfeel, loginscreen, plasmastyle, splash
 from .spec import Theme, save
 
 _FONT_KEYS = {  # Fonts field -> (file, group, key)
@@ -144,6 +144,11 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
         (out / "boot" / "apply.sh").write_text(bootsplash.apply_script(theme))
         (out / "boot" / "apply.sh").chmod(0o755)
 
+    for rel, data in apps.files(theme).items():
+        f = out / "apps" / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(data) if isinstance(data, bytes) else f.write_text(data)
+
     if theme.gtk.generate:
         (out / "gtk").mkdir()
         (out / "gtk" / gtk.FILE).write_text(gtk.css(theme))
@@ -235,6 +240,7 @@ def _write_install_script(theme: Theme, out: Path) -> None:
             f'cp -r "$DIR/aurorae/{name}" "$DATA/aurorae/themes/"',
         ]
     s += _gtk_lines(theme)
+    s += _apps_lines(theme)
     if theme.wallpaper:
         s += ['echo "==> wallpaper"', f'mkdir -p "$DATA/wallpapers/{theme.slug}"',
               f'cp "$DIR"/wallpapers/* "$DATA/wallpapers/{theme.slug}/"']
@@ -385,3 +391,112 @@ def _gtk_lines(theme: Theme) -> list[str]:
         lines += ["# Flatpak apps only see ~/.config/gtk-4.0 with this (read-only) permission",
                   "command -v flatpak >/dev/null 2>&1 && flatpak override --user --filesystem=xdg-config/gtk-4.0:ro || true"]
     return lines
+
+
+ALACRITTY_IMPORT = '"~/.config/alacritty/kde-customizer.toml"'
+
+
+def _block(file: str, body: str) -> list[str]:
+    """(Re)write our marked block at the end of a config file (later lines win in kitty/Ghostty)."""
+    return [
+        f'touch {file}',
+        f"sed -i '/^# BEGIN_KDEC_THEME/,/^# END_KDEC_THEME/d' {file}",
+        f"printf '\\n# BEGIN_KDEC_THEME (kde-customizer; delete this block to undo)\\n{body}\\n# END_KDEC_THEME\\n'"
+        f" >> {file}",
+    ]
+
+
+def _unblock(file: str) -> str:
+    return f"[[ -f {file} ]] && sed -i '/^# BEGIN_KDEC_THEME/,/^# END_KDEC_THEME/d' {file} || true"
+
+
+def _apps_lines(theme: Theme) -> list[str]:
+    """kitty, Alacritty, WezTerm, Ghostty, VS Code — only where installed; an app switched off is undone."""
+    a, slug = theme.apps, theme.slug
+    imp = ALACRITTY_IMPORT
+    s: list[str] = []
+
+    # kitty: theme file + include at the end of kitty.conf
+    s += ['if command -v kitty >/dev/null 2>&1 || [[ -d "$CONF/kitty" ]]; then']
+    if a.kitty:
+        s += ['  echo "==> kitty"',
+              '  mkdir -p "$CONF/kitty/themes"',
+              f'  cp "$DIR/apps/kitty/{slug}.conf" "$CONF/kitty/themes/"',
+              f'  cp "$DIR/apps/kitty/{slug}.conf" "$CONF/kitty/kde-customizer-theme.conf"']
+        s += ["  " + x for x in _block('"$CONF/kitty/kitty.conf"', "include kde-customizer-theme.conf")]
+    else:
+        s += ["  " + _unblock('"$CONF/kitty/kitty.conf"'), '  rm -f "$CONF/kitty/kde-customizer-theme.conf"']
+    s += ["fi"]
+
+    # Ghostty: themes/<Slug> + `theme = <Slug>` at the end of its config
+    s += ['if command -v ghostty >/dev/null 2>&1 || [[ -d "$CONF/ghostty" ]]; then',
+          '  GC="$CONF/ghostty/config"; [[ -f "$CONF/ghostty/config.ghostty" ]] && GC="$CONF/ghostty/config.ghostty"']
+    if a.ghostty:
+        s += ['  echo "==> Ghostty"', '  mkdir -p "$CONF/ghostty/themes"',
+              f'  cp "$DIR/apps/ghostty/{slug}" "$CONF/ghostty/themes/"']
+        s += ["  " + x for x in _block('"$GC"', f"theme = {slug}")]
+    else:
+        s += ["  " + _unblock('"$GC"')]
+    s += ["fi"]
+
+    # WezTerm: the color scheme only (its config is Lua)
+    if a.wezterm:
+        s += ['if command -v wezterm >/dev/null 2>&1 || [[ -d "$CONF/wezterm" ]]; then',
+              '  echo "==> WezTerm"', '  mkdir -p "$CONF/wezterm/colors"',
+              f'  cp "$DIR/apps/wezterm/{slug}.toml" "$CONF/wezterm/colors/"',
+              f"  echo \"  select it in wezterm.lua: config.color_scheme = '{theme.name}'\"",
+              "fi"]
+
+    # Alacritty: the importing file overrides imports, so its own [colors.*] tables are commented out (marked)
+    A = '"$CONF/alacritty/alacritty.toml"'
+    s += ['if command -v alacritty >/dev/null 2>&1 || [[ -d "$CONF/alacritty" ]]; then']
+    if a.alacritty:
+        s += [
+            '  echo "==> Alacritty"',
+            '  mkdir -p "$CONF/alacritty"',
+            '  cp "$DIR/apps/alacritty/kde-customizer.toml" "$CONF/alacritty/"',
+            f"  IMP={shlex.quote(imp)}",
+            f"  if [[ ! -s {A} ]]; then",
+            f'    printf "[general]\\nimport = [%s]\\n" "$IMP" > {A}',
+            "  else",
+            f'    [[ -f {A}.kdec-backup ]] || cp {A} {A}.kdec-backup',
+            "    # comment out [colors.*] / [[colors.*]] tables (ours replace them); [colors] itself stays",
+            "    awk '/^[[:space:]]*\\[/ { c = ($0 ~ /^[[:space:]]*\\[\\[?colors\\./) } "
+            "c && !/^#kdec# / { $0 = \"#kdec# \" $0 } { print }' " + A + f" > {A}.tmp",
+            f'    cat {A}.tmp > {A}; rm -f {A}.tmp',
+            f'    if grep -qF "kde-customizer.toml" {A}; then :',
+            f"    elif grep -qE '^[[:space:]]*import[[:space:]]*=[[:space:]]*\\[' {A}; then",
+            "      # add ours first in the existing array (later imports and the file itself override it)",
+            f"      sed -i -E \"0,/^[[:space:]]*import[[:space:]]*=[[:space:]]*\\[/s##import = [$IMP, #\" {A}",
+            f"    elif grep -qE '^[[:space:]]*\\[general\\]' {A}; then",
+            "      awk -v imp=\"$IMP\" '{ print } !d && /^[[:space:]]*\\[general\\][[:space:]]*$/ "
+            "{ print \"import = [\" imp \"]\"; d = 1 }' " + A + f" > {A}.tmp",
+            f'      cat {A}.tmp > {A}; rm -f {A}.tmp',
+            "    else",
+            "      # a [general] table before the first table (top-level keys must stay above any table)",
+            "      awk -v imp=\"$IMP\" '!d && /^[[:space:]]*\\[/ { print \"[general]\\nimport = [\" imp \"]\\n\"; d = 1 } "
+            "{ print } END { if (!d) print \"\\n[general]\\nimport = [\" imp \"]\" }' " + A + f" > {A}.tmp",
+            f'      cat {A}.tmp > {A}; rm -f {A}.tmp',
+            "    fi",
+            "  fi",
+        ]
+    else:
+        s += [
+            f"  if [[ -f {A} ]]; then",
+            f"    sed -i -E -e 's/^#kdec# //' -e 's#\"~/\\.config/alacritty/kde-customizer\\.toml\",? ?##' "
+            f"-e '/^import = \\[\\]$/d' {A}",
+            "  fi",
+            '  rm -f "$CONF/alacritty/kde-customizer.toml"',
+        ]
+    s += ["fi"]
+
+    # VS Code family: install the extension; the theme is picked in Color Theme (settings.json is left alone)
+    if a.vscode:
+        s += [f'for C in code codium code-oss; do',
+              '  if command -v "$C" >/dev/null 2>&1; then',
+              f'    echo "==> $C"',
+              f'    "$C" --install-extension "$DIR/apps/vscode/{apps.vscode_id(theme)}.vsix" --force >/dev/null 2>&1 \\',
+              f'      && echo "  installed: pick \\"{theme.name}\\" in Preferences > Color Theme" || echo "  could not install the extension"',
+              "  fi",
+              "done"]
+    return s

@@ -8,11 +8,9 @@ from conftest import EXAMPLE, pyside6
 pytestmark = pytest.mark.skipif(not pyside6(), reason="needs PySide6")
 
 
-@pytest.fixture(scope="module")
-def app():
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PySide6.QtWidgets import QApplication
-    return QApplication.instance() or QApplication([])
+@pytest.fixture
+def app(qapp):
+    return qapp
 
 
 @pytest.fixture

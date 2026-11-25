@@ -49,7 +49,7 @@ def snippet(tmp_path, theme) -> str:
     out = build.build(theme, tmp_path / "b")
     sh = (out / "install.sh").read_text()
     start = sh.index('echo "==> GTK 4')
-    end = sh.index("echo", start + 10)
+    end = min(i for i in (sh.find('\necho "==>', start + 10), sh.find("\nif command -v", start)) if i > 0)
     return out, sh[start:end]
 
 

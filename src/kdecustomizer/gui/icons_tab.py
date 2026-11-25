@@ -55,8 +55,15 @@ class IconsTab(QWidget):
         self.base = QComboBox()
         self.base.addItems(iconset.svg_themes())
         self.base.currentTextChanged.connect(self.changed)
+        self.app_icons = QCheckBox("Restyle every app's icon to the theme")
+        self.app_icons.setToolTip("Each installed app keeps its own logo in its own colors; its tile/plate becomes\n"
+                                  "a graphite gradient with an accent rim, so the set matches and logos pop.\n"
+                                  "Includes Flatpak apps. Free-standing logos are left as they are.")
+        self.app_icons.toggled.connect(self.changed)
+        self.app_icons.toggled.connect(lambda _: self.icons_changed.emit())
         f.addRow(self.generate)
         f.addRow("Base theme", self.base)
+        f.addRow(self.app_icons)
         v.addWidget(g)
 
         g = QGroupBox("Signature icons")
@@ -139,15 +146,16 @@ class IconsTab(QWidget):
     # --- spec <-> form ------------------------------------------------------------------
     def load(self, theme: spec.Theme) -> None:
         ics = theme.iconset
-        for w in (self.generate, self.base, self.style, self.mode):
+        for w in (self.generate, self.base, self.style, self.mode, self.app_icons):
             w.blockSignals(True)
         self.generate.setChecked(ics.generate)
+        self.app_icons.setChecked(ics.app_icons == "recolor")
         if self.base.findText(ics.base) < 0:
             self.base.addItem(ics.base)
         self.base.setCurrentText(ics.base)
         self.style.setText(ics.style)
         self.mode.setCurrentIndex(1 if ics.signature == "image" else 0)
-        for w in (self.generate, self.base, self.style, self.mode):
+        for w in (self.generate, self.base, self.style, self.mode, self.app_icons):
             w.blockSignals(False)
         self._mode_changed()
         self.refresh_grid()
@@ -157,6 +165,7 @@ class IconsTab(QWidget):
         ics.generate = self.generate.isChecked()
         ics.base = self.base.currentText().strip()
         ics.style = self.style.text().strip()
+        ics.app_icons = "recolor" if self.app_icons.isChecked() else "keep"
 
     def _mode_changed(self, *_):
         image = self.mode.currentData() == "image"

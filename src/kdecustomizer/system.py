@@ -46,6 +46,29 @@ def widget_styles() -> list[str]:
     return styles
 
 
+def documents_dir() -> Path:
+    """The user's Documents folder (XDG user dirs: localized names, moved folders), else ~/Documents."""
+    env = os.environ.get("XDG_DOCUMENTS_DIR")
+    if env:
+        return Path(os.path.expandvars(env)).expanduser()
+    cfg = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "user-dirs.dirs"
+    try:
+        for line in cfg.read_text().splitlines():
+            if line.startswith("XDG_DOCUMENTS_DIR="):
+                val = line.split("=", 1)[1].strip().strip('"')
+                val = val.replace("$HOME", str(Path.home()))
+                if val and Path(val) != Path.home():
+                    return Path(val)
+    except OSError:
+        pass
+    return Path.home() / "Documents"
+
+
+def themes_dir() -> Path:
+    """Where new themes are saved: one folder per theme (spec, signature icons, builds)."""
+    return documents_dir() / "KDE Themes"
+
+
 def kvantum_installed() -> bool:
     """Kvantum's Qt 6 style plugin (or its manager) is on this machine."""
     import shutil

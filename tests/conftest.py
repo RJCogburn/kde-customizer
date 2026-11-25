@@ -68,6 +68,14 @@ def cursor_base(tmp_path) -> Path:
     return d
 
 
+@pytest.fixture(scope="session")
+def qapp():
+    """One QApplication (widgets) for the whole run: a QGuiApplication created first would break widget tests."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    return QApplication.instance() or QApplication([])
+
+
 def have(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 

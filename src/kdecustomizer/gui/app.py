@@ -11,7 +11,7 @@ from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QColorDialog, QComboBox, QDockWidget, QFileDialog,
     QFontDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow,
-    QHeaderView, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QSplitter, QTabWidget,
+    QHeaderView, QInputDialog, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QSplitter, QTabWidget,
     QTableWidget, QTableWidgetItem, QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -282,7 +282,9 @@ class Main(QMainWindow):
         act("Open…", "document-open", self.open, QKeySequence.Open)
         act("From Desktop", "camera-photo", self.from_desktop, None,
             "Start a theme from your current desktop: colors, styles, fonts, panels and wallpaper")
-        act("Save", "document-save", self.save, QKeySequence.Save)
+        act("Save", "document-save", self.save, QKeySequence.Save,
+            f"Saves into {system.themes_dir()}/<name>/ the first time")
+        act("Save As…", "document-save-as", self.save_as, QKeySequence.SaveAs)
         tb.addSeparator()
         act("Build", "run-build", self.do_build, "Ctrl+B", "Write theme files to build/")
         act("Export…", "document-export", self.export, "Ctrl+E", "Pack a shareable .tar.gz with the wallpaper")
@@ -453,6 +455,26 @@ class Main(QMainWindow):
                                   "(flatpak override --user)")
         self.g_flatpak.toggled.connect(self.changed)
         f.addRow(self.g_flatpak)
+
+        f = self._group("Other terminals and editors", v)
+        note = QLabel("Matching colors for these apps, when they are installed.")
+        note.setWordWrap(True)
+        note.setStyleSheet("color: palette(placeholder-text)")
+        f.addRow(note)
+        self.apps: dict[str, QCheckBox] = {}
+        for key, label, tip in [
+            ("kitty", "kitty", "Theme file + an include at the end of kitty.conf"),
+            ("alacritty", "Alacritty", "Imports a theme; alacritty.toml's own [colors.*] tables are commented out "
+                                       "(backup kept, restored when this is off)"),
+            ("wezterm", "WezTerm", "Installs a color scheme; select it in wezterm.lua"),
+            ("ghostty", "Ghostty", "Theme file + `theme =` at the end of Ghostty's config"),
+            ("vscode", "VS Code / VSCodium", "Installs a theme extension; pick it in Preferences > Color Theme"),
+        ]:
+            c = QCheckBox(label)
+            c.setToolTip(tip)
+            c.toggled.connect(self.changed)
+            self.apps[key] = c
+            f.addRow(c)
 
         f = self._group("Cursors", v)
         self.c_generate = QCheckBox("Generate cursors from palette")
@@ -833,6 +855,8 @@ class Main(QMainWindow):
         self._plasma_generate_toggled(t.plasma.generate)
         self.konsole.setChecked(t.konsole)
         self.g_generate.setChecked(t.gtk.generate)
+        for k, c in self.apps.items():
+            c.setChecked(getattr(t.apps, k))
         self.g_flatpak.setChecked(t.gtk.flatpak)
         self.g_flatpak.setEnabled(t.gtk.generate)
         for k, w in self.deco.items():
@@ -891,6 +915,8 @@ class Main(QMainWindow):
         t.plasma.opacity = self.p_opacity.value() / 100
         t.konsole = self.konsole.isChecked()
         t.gtk.generate = self.g_generate.isChecked()
+        for k, c in self.apps.items():
+            setattr(t.apps, k, c.isChecked())
         t.gtk.flatpak = self.g_flatpak.isChecked()
         t.tweaks = self._tweaks_from_form()
         for k, w in self.deco.items():
@@ -920,7 +946,7 @@ class Main(QMainWindow):
         self._refresh.start()
         self._update_contrast()
         ics = self.theme.iconset
-        key = (ics.generate, ics.base, ics.signature_dir, self.theme.palette.accent, self.theme.slug)
+        key = (ics.generate, ics.base, ics.signature_dir, ics.app_icons, self.theme.palette.accent, self.theme.slug)
         if ics.generate and key != self._icons_key:
             self._icons_timer.start()
 
@@ -940,7 +966,7 @@ class Main(QMainWindow):
             self.statusBar().showMessage(f"Icon preview: {e}", 6000)
             return
         ics = t.iconset
-        self._icons_key = (ics.generate, ics.base, ics.signature_dir, t.palette.accent, t.slug)
+        self._icons_key = (ics.generate, ics.base, ics.signature_dir, ics.app_icons, t.palette.accent, t.slug)
         paths = [p for p in QIcon.themeSearchPaths() if p != str(root)]
         QIcon.setThemeSearchPaths([str(root), *paths])  # also makes Qt drop its cached lookups
         self.preview.icons.clear()
@@ -950,11 +976,7 @@ class Main(QMainWindow):
         """Signature icons are stored next to the spec, so it needs a file first."""
         if self.path and not self.dirty:
             return True
-        if not self.path:
-            QMessageBox.information(self, "Save the theme first",
-                                    "Signature icons are kept in a folder next to the theme file. "
-                                    "Choose where to save the theme.")
-        return self.save()
+        return self.save()          # first save names the theme and puts it in the themes folder
 
     def _update_contrast(self) -> None:
         p = self.theme.palette.resolved()
@@ -1035,17 +1057,68 @@ class Main(QMainWindow):
     def open(self) -> None:
         if not self._confirm_discard():
             return
-        f, _ = QFileDialog.getOpenFileName(self, "Open theme", "", "Theme spec (*.toml)")
+        start = system.themes_dir()
+        f, _ = QFileDialog.getOpenFileName(self, "Open theme", str(start if start.is_dir() else Path.home()),
+                                           "Theme spec (*.toml)")
         if f:
             self.load(Path(f))
 
-    def save(self) -> bool:
-        if not self.path:
-            f, _ = QFileDialog.getSaveFileName(self, "Save theme", f"{self.theme.slug.lower()}.toml",
-                                               "Theme spec (*.toml)")
-            if not f:
+    def _ask_name(self) -> bool:
+        """A theme still called "Untitled" / "New Theme"… gets a real name (and matching id) first."""
+        t = self.from_form()
+        if not spec.is_placeholder_name(t.name):
+            return True
+        old_id = t.id
+        while True:
+            name, ok = QInputDialog.getText(self, "Name your theme",
+                                            "What should this theme be called?", text="")
+            if not ok:
                 return False
-            self.path = Path(f)
+            if name.strip() and not spec.is_placeholder_name(name):
+                break
+        self.text["name"].setText(name.strip())
+        if spec.is_placeholder_id(old_id) or old_id == spec.id_for(t.name):
+            self.text["id"].setText(spec.id_for(name.strip()))
+        self.from_form()
+        return True
+
+    def save(self) -> bool:
+        """First save of a theme: name it if needed, then into the themes folder — no file dialog."""
+        if not self.path:
+            if not self._ask_name():
+                return False
+            while True:
+                target = spec.default_path(self.from_form())
+                if not target.exists():
+                    break
+                r = QMessageBox.question(
+                    self, "Theme already exists",
+                    f"{target.parent} already has a theme called “{self.theme.name}”.\n\n"
+                    "Replace it, or give this one another name?",
+                    QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel, QMessageBox.No)
+                if r == QMessageBox.Yes:
+                    break
+                if r == QMessageBox.Cancel:
+                    return False
+                self.text["name"].setText("")            # ask again
+                if not self._ask_name():
+                    return False
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self.path = target
+        return self._write()
+
+    def save_as(self) -> bool:
+        if not self._ask_name():
+            return False
+        start = str(self.path if self.path else spec.default_path(self.from_form()))
+        Path(start).parent.mkdir(parents=True, exist_ok=True)
+        f, _ = QFileDialog.getSaveFileName(self, "Save theme as", start, "Theme spec (*.toml)")
+        if not f:
+            return False
+        self.path = Path(f)
+        return self._write()
+
+    def _write(self) -> bool:
         out = copy.deepcopy(self.from_form())
         for attr in ("wallpaper",):  # keep files next to the spec portable
             val = getattr(out, attr)
@@ -1067,9 +1140,11 @@ class Main(QMainWindow):
         return True
 
     def _build_root(self) -> Path:
-        return (self.path.parent if self.path else Path.cwd()) / "build"
+        return self.path.parent / "build"
 
     def do_build(self) -> Path | None:
+        if not self.path and not self.save():      # builds live in the theme's own folder
+            return None
         try:
             out = builder.build(copy.deepcopy(self.from_form()), self._build_root())
         except Exception as e:
@@ -1085,6 +1160,8 @@ class Main(QMainWindow):
             self.text["wallpaper"].setText(f)
 
     def export(self) -> None:
+        if not self.path and not self.save():
+            return
         theme = self.from_form()
         f, _ = QFileDialog.getSaveFileName(self, "Export theme", f"{theme.slug}.tar.gz", "Theme archive (*.tar.gz)")
         if not f:

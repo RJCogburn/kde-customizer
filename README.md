@@ -24,6 +24,8 @@ From about seven palette colors, one theme spec generates:
 - a **global theme** package (icons, cursors, app style, window decoration, splash)
 - a **panel layout**: position, size, floating or dock-style, and widget order
 - a matching **Konsole** color scheme and profile
+- matching **kitty, Alacritty, WezTerm, Ghostty and VS Code** themes (where installed; your configs are kept, and
+  switched-off apps are restored)
 - matching **GNOME / GTK 4 apps** (libadwaita colors in `~/.config/gtk-4.0`; optionally for Flatpak apps too)
 - **fonts**, title-bar buttons and any raw KDE setting (`[tweaks]`)
 - a standalone **`install.sh`**, so a built theme can be shared and installed without this tool
@@ -148,6 +150,8 @@ machine, so an agent can write theme files directly.
 **Matching icon set:** on the **Icons** tab tick *Generate a matching icon set* and pick a base theme you
 have installed (Papirus, Breeze, McMojave, Gruvbox…). Its folders and places are recolored to your accent,
 and everything else is inherited from it. This takes about 0.2 seconds and runs on every build.
+Tick *Restyle every app's icon* to give every installed app (Flatpaks too) the theme's look: each keeps its
+own logo in its own colors, on a graphite plate with an accent rim.
 
 **Signature icons:** custom versions of the 14 icons you see most (folders, home, trash, app launcher,
 file manager, terminal, browser, settings), made in a style you describe:

@@ -37,6 +37,8 @@ SLOTS: dict[str, tuple[str, str, list[str]]] = {
     "preferences-system": ("apps", "a system settings app: a gear", ["systemsettings"]),
 }
 PNG_SIZES = [16, 22, 24, 32, 48, 64, 96, 128, 256]
+# index.theme Context names (the icon spec's: "Apps" isn't one, and KDE then never finds those icons)
+_CONTEXT = {"places": "Places", "apps": "Applications"}
 _RECOLOR_NAMES = re.compile(r"^(folder|user-|inode-directory|network-workgroup)")
 _VARIANT = re.compile(r"^folder-(adwaita|black|blue|bluegrey|breeze|brown|carmine|cyan|darkcyan|deeporange|green|"
                       r"grey|indigo|magenta|nordic|orange|palebrown|paleorange|pink|red|teal|violet|white|yaru|"
@@ -127,9 +129,15 @@ def _slot_names() -> set[str]:
     return names
 
 
+# app icons the preview draws (panel tasks, launcher favorites) — recolored too with app_icons = "recolor"
+_PREVIEW_APPS = {"system-file-manager", "internet-web-browser", "utilities-terminal", "systemsettings",
+                 "preferences-system", "plasmadiscover", "accessories-text-editor", "okular", "spectacle",
+                 "ark", "accessories-calculator", "elisa", "help-browser", "org.kde.dolphin", "org.kde.konsole"}
+
+
 def preview_names() -> set[str]:
-    """The icon names the GUI preview draws that a generated set can change (slots + aliases)."""
-    return _slot_names()
+    """The icon names the GUI preview draws that a generated set can change (slots + aliases + app icons)."""
+    return _slot_names() | _PREVIEW_APPS
 
 
 def build(theme: Theme, out_root: Path, only: set[str] | None = None) -> Path:
@@ -187,7 +195,7 @@ def build(theme: Theme, out_root: Path, only: set[str] | None = None) -> Path:
                 for n in [slot, *aliases]:
                     shutil.copyfile(svg, out / d / f"{n}.svg")
                 used_dirs[d] = {"Size": "64", "MinSize": "8", "MaxSize": "512", "Type": "Scalable",
-                                "Context": ctx.title()}
+                                "Context": _CONTEXT[ctx]}
             elif png.is_file():
                 from PIL import Image  # only needed for image-mode signature icons
                 with Image.open(png) as im:
@@ -198,7 +206,13 @@ def build(theme: Theme, out_root: Path, only: set[str] | None = None) -> Path:
                         small = im.resize((size, size), Image.LANCZOS)
                         for n in [slot, *aliases]:
                             small.save(out / d / f"{n}.png")
-                        used_dirs[d] = {"Size": str(size), "Type": "Fixed", "Context": ctx.title()}
+                        used_dirs[d] = {"Size": str(size), "Type": "Fixed", "Context": _CONTEXT[ctx]}
+
+    # ---- layer 3: every app's own icon in shades of the accent ----
+    if ics.app_icons == "recolor":
+        from . import appicons
+        app_dirs, _count = appicons.build_into(theme, out, skip=replaced, only=only)
+        used_dirs.update(app_dirs)
 
     # ---- index.theme ----
     plain = [d for d in used_dirs if d not in scaled]

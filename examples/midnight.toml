@@ -43,6 +43,14 @@ generate = true
 background = "gradient"   # gradient | wallpaper (the theme's, dimmed) | solid
 text = ""                 # "" = the theme name
 
+# Matching themes for other terminals and editors (each only where installed)
+[apps]
+kitty = true
+alacritty = true     # comments out alacritty.toml's own [colors.*] tables (backup kept; restored when false)
+wezterm = true       # select it in wezterm.lua: config.color_scheme = 'Midnight'
+ghostty = true
+vscode = true        # then pick "Midnight" in VS Code's Color Theme
+
 # GNOME / GTK 4 (libadwaita) apps in the palette; flatpak = true also covers Flatpak apps
 [gtk]
 generate = true

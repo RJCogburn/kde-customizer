@@ -106,6 +106,16 @@ class CursorSet:
 
 
 @dataclass
+class Apps:
+    """Other terminals/editors in the theme; each only when that app is installed."""
+    kitty: bool = True
+    alacritty: bool = True            # comments out alacritty.toml's own [colors] tables (restored without this)
+    wezterm: bool = True              # installs a color scheme; select it in wezterm.lua (config.color_scheme)
+    ghostty: bool = True
+    vscode: bool = True               # VS Code / VSCodium / Code-OSS extension; pick it in Color Theme
+
+
+@dataclass
 class BootSplash:
     generate: bool = False            # Plymouth boot splash in the palette (admin password + initramfs rebuild)
     background: str = "gradient"      # gradient | solid
@@ -136,6 +146,9 @@ class IconSet:
     signature: str = "none"           # custom "signature" icons on top: none | svg (AI-drawn) | image (local image AI)
     style: str = ""                   # look of the signature icons, e.g. "brushed gold metal, dark glass"
     signature_dir: str = ""           # folder of generated signature icons (relative to the spec file)
+    app_icons: str = "keep"           # keep | recolor (every app's own logo on a graphite plate + accent rim)
+
+    APP_ICONS = ("keep", "recolor")
 
 
 @dataclass
@@ -169,6 +182,7 @@ class Theme:
     login_screen: LoginScreen = field(default_factory=LoginScreen)
     gtk: Gtk = field(default_factory=Gtk)
     boot_splash: BootSplash = field(default_factory=BootSplash)
+    apps: Apps = field(default_factory=Apps)
     wallpaper: str = ""               # path to image; copied into the package
     decoration: Decoration = field(default_factory=Decoration)
     fonts: Fonts = field(default_factory=Fonts)
@@ -224,6 +238,29 @@ class Theme:
         return f"{self.slug}-Icons" if self.iconset.generate else self.icons
 
 
+# Names the app gives themes it creates; saving one asks for a real name first.
+PLACEHOLDER_NAMES = {"", "untitled", "new theme", "my desktop"}
+
+
+def is_placeholder_name(name: str) -> bool:
+    return name.strip().lower() in PLACEHOLDER_NAMES
+
+
+def id_for(name: str) -> str:
+    return "org.kdecustomizer." + (re.sub(r"[^a-z0-9]+", "", name.lower()) or "untitled")
+
+
+def is_placeholder_id(theme_id: str) -> bool:
+    return theme_id in {id_for(n) for n in PLACEHOLDER_NAMES} | {"org.kdecustomizer.untitled"}
+
+
+def default_path(theme: "Theme") -> Path:
+    """<themes folder>/<Name>/<slug>.toml — the theme's own folder."""
+    from .system import themes_dir
+    folder = re.sub(r'[/\\:*?"<>|]+', "-", theme.name.strip()).strip(" .-") or theme.slug
+    return themes_dir() / folder / f"{theme.slug.lower()}.toml"
+
+
 def _build(cls, data: dict[str, Any]):
     known = {f.name: f for f in fields(cls)}
     unknown = set(data) - set(known)
@@ -246,6 +283,7 @@ def from_dict(data: dict[str, Any]) -> Theme:
         "login_screen": lambda d: _build(LoginScreen, d),
         "gtk": lambda d: _build(Gtk, d),
         "boot_splash": lambda d: _build(BootSplash, d),
+        "apps": lambda d: _build(Apps, d),
         "panels": lambda lst: [_build(Panel, p) for p in lst],
     }
     for key, fn in sub.items():
@@ -263,6 +301,8 @@ def from_dict(data: dict[str, Any]) -> Theme:
         raise ValueError(f"[boot_splash] background must be one of {', '.join(BootSplash.BACKGROUNDS)}")
     if theme.login_screen.background not in LoginScreen.BACKGROUNDS:
         raise ValueError(f"[login_screen] background must be one of {', '.join(LoginScreen.BACKGROUNDS)}")
+    if theme.iconset.app_icons not in IconSet.APP_ICONS:
+        raise ValueError(f"[iconset] app_icons must be one of {', '.join(IconSet.APP_ICONS)}")
     if theme.cursorset.fill not in CursorSet.FILLS:
         raise ValueError(f"[cursorset] fill must be one of {', '.join(CursorSet.FILLS)}")
     if not 0 <= theme.widgets.radius <= 12:
@@ -327,7 +367,7 @@ def dumps(theme: Theme) -> str:
             continue
         else:
             out.append(f"{_key(k)} = {_val(v)}")
-    for name in ("palette", "plasma", "iconset", "cursorset", "widgets", "decoration", "splash_screen", "login_screen", "boot_splash", "gtk", "fonts"):
+    for name in ("palette", "plasma", "iconset", "cursorset", "widgets", "decoration", "splash_screen", "login_screen", "boot_splash", "gtk", "apps", "fonts"):
         out.append(f"\n[{name}]")
         out += [f"{_key(k)} = {_val(v)}" for k, v in tables[name].items()]
     for p in d["panels"]:
