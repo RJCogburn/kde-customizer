@@ -20,7 +20,7 @@ V="$F/$ID"
 [[ -n "$ID" && -d "$V" ]] || exit 0
 
 put() {  # put SRC DEST: copy when DEST exists (the app is set up for it) and differs; true when copied
-  [[ -f "$1" && -f "$2" ]] && ! cmp -s "$1" "$2" && cat "$1" > "$2"
+  [[ -f "$1" && -f "$2" ]] && [[ "$(cat "$1")" != "$(cat "$2")" ]] && cat "$1" > "$2"   # no cmp: diffutils may be missing
 }
 put "$V/kde-customizer.css" "$CONF/gtk-4.0/kde-customizer.css" || true
 if put "$V/kitty.conf" "$CONF/kitty/kde-customizer-theme.conf"; then
