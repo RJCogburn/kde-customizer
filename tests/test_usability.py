@@ -211,6 +211,29 @@ def test_start_page_refresh_before_thumbnails_finish(qapp, tmp_path, monkeypatch
 
 
 @gui
+def test_start_page_cards_fill_the_width_without_scrolling(qapp):
+    from PySide6.QtWidgets import QScrollArea
+    from kdecustomizer.gui.start import Cards, StartPage
+    library.add_recent(EXAMPLE)
+    page = StartPage()
+    page.resize(1400, 1100)
+    page.show()
+    for _ in range(40):
+        qapp.processEvents()
+    grid = page.starters
+    per_row = (grid.viewport().width() - 4) // Cards.MIN_CELL
+    first_row = [i for i in range(grid.count()) if grid.visualItemRect(grid.item(i)).top() ==
+                 grid.visualItemRect(grid.item(0)).top()]
+    assert len(first_row) == per_row                           # as many columns as fit, no early wrap
+    assert grid.gridSize().width() * per_row <= grid.viewport().width()
+    last = grid.visualItemRect(grid.item(grid.count() - 1))
+    assert last.bottom() <= grid.height() <= last.bottom() + 8  # no empty band under the last row
+    area = page.findChild(QScrollArea)
+    assert not area.verticalScrollBar().isVisible()            # everything fits: no scrollbar
+    page.close()
+
+
+@gui
 def test_problems_strip_and_undo_redo(blank, qapp):
     blank.load(EXAMPLE)
     blank._update_problems()

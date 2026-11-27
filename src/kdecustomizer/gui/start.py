@@ -31,11 +31,13 @@ def thumbnail(path: Path, renderer: Preview) -> QPixmap:
 
 class Cards(QListWidget):
     """A wrapping grid of theme cards; each item's data is its spec path."""
+    MIN_CELL = THUMB.width() + 24
+
     def __init__(self):
         super().__init__()
         self.setViewMode(QListView.IconMode)
         self.setIconSize(THUMB)
-        self.setGridSize(QSize(THUMB.width() + 24, THUMB.height() + 48))
+        self.setGridSize(QSize(self.MIN_CELL, self.cell_height()))
         self.setResizeMode(QListView.Adjust)
         self.setMovement(QListView.Static)
         self.setWrapping(True)
@@ -45,14 +47,26 @@ class Cards(QListWidget):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setStyleSheet("QListWidget { background: transparent; }")
 
+    def item_height(self) -> int:
+        """Thumbnail + one line of name + the view's item margins."""
+        return THUMB.height() + self.fontMetrics().lineSpacing() + 12
+
+    def cell_height(self) -> int:
+        return self.item_height() + 8
+
     def fit(self) -> None:
-        """Grow to show every row (the page scrolls, not each grid)."""
+        """Spread the columns over the full width and grow to show every row (the page scrolls, not each grid)."""
         if not self.count():
             self.setFixedHeight(0)
             return
-        per_row = max(1, self.viewport().width() // self.gridSize().width())
+        width = self.viewport().width() - 4         # cells that fill the width exactly wrap one too early
+        per_row = max(1, width // self.MIN_CELL)
+        cell = QSize(max(self.MIN_CELL, width // per_row), self.cell_height())
+        if cell != self.gridSize():
+            self.setGridSize(cell)
         rows = -(-self.count() // per_row)
-        self.setFixedHeight(rows * self.gridSize().height() + 8)
+        # the last row needs no gap below it
+        self.setFixedHeight(rows * cell.height() - (cell.height() - self.item_height()) + 2)
 
     def keyPressEvent(self, e) -> None:
         """Enter opens the selected card (clicks open too; itemActivated would fire twice with single-click)."""
@@ -168,7 +182,7 @@ class StartPage(QWidget):
             it.setData(Qt.UserRole, str(p))
             it.setToolTip(tip(p, t))
             it.setTextAlignment(Qt.AlignHCenter | Qt.AlignTop)
-            it.setSizeHint(QSize(THUMB.width() + 16, THUMB.height() + 40))   # thumbnails arrive later
+            it.setSizeHint(QSize(THUMB.width() + 16, grid.item_height()))   # thumbnails arrive later
             grid.addItem(it)
             self._todo.append(it)
         grid.fit()
