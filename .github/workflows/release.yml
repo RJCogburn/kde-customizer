@@ -21,7 +21,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build tools
         run: |
           sudo apt-get update && sudo apt-get install -y python3-venv file
@@ -39,7 +39,7 @@ jobs:
         run: packaging/build-packages.sh
       - name: Checksums
         run: cd dist && sha256sum KDE_Customizer-*.AppImage kde-customizer* | grep -v '\.sha256' > SHA256SUMS && cat SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: |
@@ -55,7 +55,7 @@ jobs:
     steps:
       - name: Build tools
         run: pacman -Syu --noconfirm --needed base-devel git
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: makepkg (from this checkout instead of the tag tarball)
         run: |
           useradd -m builder
@@ -76,7 +76,7 @@ jobs:
           kdec build /usr/share/kde-customizer/examples/midnight.toml -o /tmp/b | tail -1
           mkdir -p arch && cp /tmp/aur/kde-customizer-*.pkg.tar.zst arch/
       # Attached to the release so Arch users can `pacman -U` it without building
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: arch
           path: arch/*.pkg.tar.zst
@@ -88,7 +88,7 @@ jobs:
     steps:
       - name: Python, PySide6, KConfig
         run: pacman -Syu --noconfirm --needed python python-pytest pyside6 qt6-svg kconfig ttf-dejavu
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: pytest
         run: QT_QPA_PLATFORM=offscreen python -m pytest -q
 
@@ -100,7 +100,7 @@ jobs:
     steps:
       - name: Plymouth, Xvfb
         run: pacman -Syu --noconfirm --needed plymouth gtk3 xorg-server-xvfb xorg-xwd imagemagick xdotool python ttf-dejavu
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Run the boot splash
         run: |
           set -euxo pipefail
@@ -139,7 +139,7 @@ jobs:
           # it really drew something: the X11 renderer opened, and every screenshot has more than one color
           grep -q "renderers/x11.so" shots/plymouthd.log && ! grep -q 'Could not load module "/usr/lib/plymouth/renderers/x11.so"' shots/plymouthd.log
           for f in shots/*.png; do n=$(identify -format %k "$f"); echo "$f: $n colors"; test "$n" -gt 1; done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: boot-splash-shots
@@ -152,7 +152,7 @@ jobs:
     steps:
       - name: SDDM + tools
         run: pacman -Syu --noconfirm --needed sddm kconfig python pyside6 util-linux
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Theme the SDDM login screen
         run: |
           set -euxo pipefail
@@ -204,7 +204,7 @@ jobs:
           - { image: "ubuntu:24.04", kind: appimage }
     container: ${{ matrix.image }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
       - name: Install (${{ matrix.kind }})
@@ -253,11 +253,11 @@ jobs:
     needs: [install-test, aur, login-test, test, boot-test]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: arch
           path: dist
