@@ -156,6 +156,8 @@ class StartPage(QWidget):
         self._timer.start()
 
     def _fill(self, grid: Cards, paths: list[Path], label, tip) -> None:
+        # forget this grid's pending thumbnails first: clear() deletes the C++ items under the Python wrappers
+        self._todo = [it for it in self._todo if it.listWidget() is not grid]
         grid.clear()
         for p in paths:
             try:
@@ -175,8 +177,6 @@ class StartPage(QWidget):
         """One thumbnail per event-loop turn, so the page shows at once and fills in."""
         while self._todo:
             it = self._todo.pop(0)
-            if it.listWidget() is None:        # cleared since
-                continue
             try:
                 it.setIcon(QIcon(thumbnail(Path(it.data(Qt.UserRole)), self._renderer)))
             except Exception:

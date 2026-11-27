@@ -82,6 +82,8 @@ Ubuntu, Debian, Fedora, openSUSE and Arch, and attaches the files to the GitHub 
 It opens on a start page with your recent themes and nine starting points (five dark, four light), each shown
 as a small preview. Pick one, start from scratch, or **From my desktop**.
 
+![Start page: recent themes and the built-in starting points](docs/start-page.png)
+
 Edit colors, panels, fonts and the rest in the tabs on the left. The preview on the right redraws as you
 type and uses the theme's own icon set. **Ctrl+Z / Ctrl+Shift+Z** undo and redo any change, including AI
 changes. A yellow strip above the tabs lists anything to fix (hard-to-read colors, an icon or cursor theme

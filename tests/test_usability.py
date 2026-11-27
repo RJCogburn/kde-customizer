@@ -194,6 +194,23 @@ def test_start_page_and_starters(blank, qapp):
 
 
 @gui
+def test_start_page_refresh_before_thumbnails_finish(qapp, tmp_path, monkeypatch):
+    """refresh() while thumbnails are still pending used to hit already-deleted list items."""
+    from kdecustomizer.gui.start import StartPage
+    errors = []
+    monkeypatch.setattr("sys.excepthook", lambda *a: errors.append(a))
+    library.add_recent(EXAMPLE)
+    page = StartPage()
+    page.refresh()                     # before any thumbnail was drawn
+    page.refresh()
+    for _ in range(40):
+        qapp.processEvents()
+    assert not errors and not page._todo
+    assert not page.recent.item(0).icon().isNull()
+    assert all(not page.starters.item(i).icon().isNull() for i in range(page.starters.count()))
+
+
+@gui
 def test_problems_strip_and_undo_redo(blank, qapp):
     blank.load(EXAMPLE)
     blank._update_problems()
