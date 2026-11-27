@@ -1,0 +1,107 @@
+id = "org.kdecustomizer.ocean"
+name = "Ocean"
+author = ""
+description = "Deep navy with a bright cyan accent"
+version = "1.0"
+icons = "breeze-dark"
+cursors = "breeze_cursors"
+widget_style = "Breeze"
+plasma_style = "default"
+splash = "org.kde.Breeze"
+wallpaper = ""
+konsole = true
+
+[palette]
+background = "#0f1724"
+surface = "#172234"
+foreground = "#e1e9f4"
+accent = "#38c6f4"
+positive = "#4fd18b"
+neutral = "#f4c64e"
+negative = "#f2727f"
+link = ""
+visited = ""
+
+[plasma]
+generate = true
+blur = true
+adaptive_transparency = true
+radius = 10
+opacity = 0.85
+outline = false
+
+[iconset]
+generate = false
+base = "Papirus-Dark"
+signature = "none"
+style = ""
+signature_dir = ""
+app_icons = "keep"
+
+[cursorset]
+generate = false
+base = "breeze_cursors"
+fill = "background"
+
+[widgets]
+generate = false
+radius = 4
+
+[decoration]
+library = "org.kde.breeze"
+theme = "Breeze"
+buttons_left = "M"
+buttons_right = "IAX"
+generate = true
+radius = 10
+title_height = 30
+title_align = "left"
+border = 2
+button_style = "glyph"
+
+[splash_screen]
+generate = true
+background = "gradient"
+text = ""
+
+[login_screen]
+generate = false
+background = "wallpaper"
+clock = true
+
+[boot_splash]
+generate = false
+background = "gradient"
+text = ""
+
+[gtk]
+generate = true
+flatpak = false
+
+[apps]
+kitty = true
+alacritty = true
+wezterm = true
+ghostty = true
+vscode = true
+firefox = true
+thunderbird = true
+
+[light_dark]
+auto = false
+
+[fonts]
+general = ""
+fixed = ""
+small = ""
+toolbar = ""
+menu = ""
+window_title = ""
+
+[[panels]]
+location = "left"
+height = 52
+floating = true
+alignment = "center"
+length_mode = "fill"
+widgets = ["org.kde.plasma.kickoff", "org.kde.plasma.icontasks", "org.kde.plasma.panelspacer", "org.kde.plasma.systemtray", "org.kde.plasma.digitalclock"]

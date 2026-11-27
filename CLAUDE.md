@@ -114,6 +114,17 @@ The preview paints into a QImage first, so translucent Plasma surfaces can blur 
 `_dialog` = modal message box over the Files window (parent dimmed like KWin's dialogparent effect). Tweaks tab = a File/Group/Key/Value table ↔ `theme.tweaks`
 (`TWEAK_PRESETS` adds common rows; values parsed to bool/int/float/str).
 Offscreen screenshots for checking UI changes: `QT_QPA_PLATFORM=offscreen`, `w.grab().save(...)`.
+Start page (`gui/start.py`, stack page 0 when no spec is given): `library.recent()` (`$XDG_STATE_HOME/kde-customizer/
+recent.json`, added on load/save) + `library.starters()` (package data `starters/*.toml`, opened as unsaved new
+themes), thumbnails = an offscreen `Preview` grabbed at 640x400 (cards need a fixed sizeHint: icons arrive later).
+Undo/redo: whole-Theme snapshots (`_commit()` after 0.6 s idle, or before/after AI and image-palette changes);
+a new theme (`_fresh`) resets the history. Problems strip = `ai.check()` 0.4 s after an edit, links `tab:N`.
+`gui/apply_dialog.py` runs install.sh itself: `==> step` lines become a checklist, then "Keep these changes?"
+for `KEEP_SECONDS` — timeout/Esc/Undo runs the restore point created during this run (set difference of
+`restorepoints.points()`). `gui/manager.py` = `installed.py` (LnF packages with `X-KDE-Customizer-Slug` in
+metadata, or `org.kdecustomizer.*` ids; parts found by install.sh's names; "<Name> Light|Dark" grouped as
+variants; in-use ones can't be removed). `imagepalette.py`: k-means on ~4k pixels (Qt or Pillow), lightness set
+like `variant.palette()`, colors moved with `variant._readable()`.
 
 ## Window decoration (`[decoration] generate = true`)
 `generators/aurorae.py` → `build/<Slug>/aurorae/<Slug>-Decoration/` (installed to `$DATA/aurorae/themes/`):
@@ -165,6 +176,8 @@ kdec layout examples/midnight.toml         # live panel/wallpaper script via pla
 kdec-gui examples/midnight.toml
 kdec check mytheme.toml                    # contrast + installed-theme warnings
 kdec revert [--list] [N]                   # undo the last install (restore points)
+kdec installed [--remove NAME [--dry-run]] # themes we installed; remove one with all its parts
+kdec palette mytheme.toml [image] [--dark|--light] [--dry-run]   # palette from an image (default: wallpaper)
 kdec wallpaper mytheme.toml "idea"         # wallpaper in the palette via the local image AI
 QT_QPA_PLATFORM=offscreen pytest -q        # test suite (pip install -e '.[gui,test]')
 kdec ai "warm autumn, dock panel" [--from mytheme.toml] [--provider claude-code(default)|claude|openai|gemini|openrouter|ollama|lmstudio --model M]

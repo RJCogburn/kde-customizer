@@ -110,6 +110,46 @@ def cmd_revert(a) -> int:
     return rc
 
 
+def cmd_installed(a) -> int:
+    """List the themes kde-customizer installed, or remove one with all its parts."""
+    from . import installed
+    if a.remove:
+        t = installed.find(a.remove)
+        if t is None:
+            raise ValueError(f"no installed kde-customizer theme called {a.remove!r} (see `kdec installed`)")
+        for p in installed.remove(t, dry_run=a.dry_run):
+            print(("would remove " if a.dry_run else "removed ") + str(p))
+        return 0
+    ts = installed.themes()
+    if not ts:
+        print("no kde-customizer themes are installed")
+    for t in ts:
+        why = t.in_use()
+        extra = f" + {', '.join(v.name for v in t.variants)}" if t.variants else ""
+        print(f"{t.name}{extra}  [{t.id}]{'  (in use)' if why else ''}")
+    return 0
+
+
+def cmd_palette(a) -> int:
+    """Take the palette from an image (default: the spec's wallpaper) and write it into the spec."""
+    from . import imagepalette
+    theme = spec.load(a.spec)
+    image = a.image or theme.wallpaper
+    if not image:
+        raise ValueError("the spec has no wallpaper: give an image")
+    path = Path(image).expanduser()
+    if not path.is_absolute() and not path.exists():
+        path = Path(a.spec).resolve().parent / path
+    dark = True if a.dark else False if a.light else None
+    theme.palette = imagepalette.from_image(path, dark, theme.palette)
+    for k, v in vars(theme.palette).items():
+        if v:
+            print(f"{k:11} {v}")
+    if not a.dry_run:
+        spec.save(theme, a.spec)
+    return 0
+
+
 def cmd_layout(a) -> int:
     """Run only the panel/wallpaper layout script against the live shell."""
     out = builder.build(spec.load(a.spec), a.out)
@@ -285,6 +325,20 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--dry-run", action="store_true", help="print the restore script instead of running it")
     s.set_defaults(fn=cmd_revert)
 
+    s = sub.add_parser("installed", help="list the themes kde-customizer installed, or remove one")
+    s.add_argument("--remove", metavar="NAME", help="remove this theme (name, id or slug) and all its parts")
+    s.add_argument("--dry-run", action="store_true", help="with --remove: only list what would be removed")
+    s.set_defaults(fn=cmd_installed)
+
+    s = sub.add_parser("palette", help="take the theme's colors from an image (default: its wallpaper)")
+    s.add_argument("spec")
+    s.add_argument("image", nargs="?", help="image file (default: the spec's wallpaper)")
+    g = s.add_mutually_exclusive_group()
+    g.add_argument("--dark", action="store_true", help="make a dark theme (default: follow the image)")
+    g.add_argument("--light", action="store_true", help="make a light theme")
+    s.add_argument("--dry-run", action="store_true", help="print the palette without saving it")
+    s.set_defaults(fn=cmd_palette)
+
     s = sub.add_parser("check", help="warn about unreadable colors and themes that aren't installed")
     s.add_argument("spec")
     s.set_defaults(fn=cmd_check)
@@ -333,7 +387,7 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
     try:
         return a.fn(a)
-    except (ValueError, FileNotFoundError) as e:
+    except (ValueError, FileNotFoundError, RuntimeError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 

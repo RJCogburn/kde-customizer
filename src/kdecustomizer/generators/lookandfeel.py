@@ -19,6 +19,7 @@ def metadata(theme: Theme) -> str:
             "Category": "",
         },
         "X-Plasma-APIVersion": "2",
+        "X-KDE-Customizer-Slug": theme.slug,     # marks our packages for `kdec installed` / the theme manager
     }, indent=2) + "\n"
 
 

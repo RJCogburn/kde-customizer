@@ -1,0 +1,107 @@
+id = "org.kdecustomizer.rosedawn"
+name = "Rose Dawn"
+author = ""
+description = "Soft blush light theme with a rose accent"
+version = "1.0"
+icons = "breeze"
+cursors = "breeze_cursors"
+widget_style = "Breeze"
+plasma_style = "default"
+splash = "org.kde.Breeze"
+wallpaper = ""
+konsole = true
+
+[palette]
+background = "#fbf4f5"
+surface = "#f2e6e8"
+foreground = "#2b1f23"
+accent = "#c7365f"
+positive = "#2e8540"
+neutral = "#93670a"
+negative = "#b3261e"
+link = ""
+visited = ""
+
+[plasma]
+generate = true
+blur = true
+adaptive_transparency = true
+radius = 14
+opacity = 0.85
+outline = false
+
+[iconset]
+generate = false
+base = "Papirus-Dark"
+signature = "none"
+style = ""
+signature_dir = ""
+app_icons = "keep"
+
+[cursorset]
+generate = false
+base = "breeze_cursors"
+fill = "background"
+
+[widgets]
+generate = false
+radius = 4
+
+[decoration]
+library = "org.kde.breeze"
+theme = "Breeze"
+buttons_left = "XIA"
+buttons_right = ""
+generate = true
+radius = 12
+title_height = 30
+title_align = "center"
+border = 2
+button_style = "dots"
+
+[splash_screen]
+generate = true
+background = "gradient"
+text = ""
+
+[login_screen]
+generate = false
+background = "wallpaper"
+clock = true
+
+[boot_splash]
+generate = false
+background = "gradient"
+text = ""
+
+[gtk]
+generate = true
+flatpak = false
+
+[apps]
+kitty = true
+alacritty = true
+wezterm = true
+ghostty = true
+vscode = true
+firefox = true
+thunderbird = true
+
+[light_dark]
+auto = false
+
+[fonts]
+general = ""
+fixed = ""
+small = ""
+toolbar = ""
+menu = ""
+window_title = ""
+
+[[panels]]
+location = "bottom"
+height = 46
+floating = true
+alignment = "center"
+length_mode = "fit"
+widgets = ["org.kde.plasma.kickoff", "org.kde.plasma.icontasks", "org.kde.plasma.marginsseparator", "org.kde.plasma.systemtray", "org.kde.plasma.digitalclock"]

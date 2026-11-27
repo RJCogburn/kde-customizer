@@ -2,23 +2,28 @@
 from __future__ import annotations
 
 import copy
+import html
+import re
 import sys
 from dataclasses import fields
 from pathlib import Path
 
 from PySide6.QtCore import QProcess, QStandardPaths, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QColor, QFont, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QColorDialog, QComboBox, QDockWidget, QFileDialog,
     QFontDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow,
-    QHeaderView, QInputDialog, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QSplitter, QTabWidget,
+    QHeaderView, QInputDialog, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QSplitter, QStackedWidget, QTabWidget,
     QTableWidget, QTableWidgetItem, QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .. import build as builder
-from .. import color, spec, system
+from .. import ai, color, library, spec, system
 from .. import cursorset, iconset
 from .ai_panel import AIPanel
+from .apply_dialog import ApplyDialog
+from .manager import ThemeManager
+from .start import StartPage
 from .icons_tab import IconsTab
 from .preview import Preview, ensure_icon_paths
 
@@ -221,8 +226,19 @@ class Main(QMainWindow):
 
         self.ai = AIPanel(lambda: self.from_form())
         self.ai.theme_ready.connect(self._ai_theme)
-        self.ai.undo.clicked.connect(self._undo_ai)
-        self._history: list[spec.Theme] = []
+        self.ai.undo.clicked.connect(self.undo)
+        self._undo_stack: list[spec.Theme] = []      # whole-theme snapshots; edits within ~0.6 s are one step
+        self._redo_stack: list[spec.Theme] = []
+        self._committed = copy.deepcopy(self.theme)
+
+        # theme problems (kdec check), shown above the tabs while there are any
+        self.problems = QLabel()
+        self.problems.setWordWrap(True)
+        self.problems.setTextFormat(Qt.RichText)
+        self.problems.setStyleSheet("QLabel { background: rgba(246, 180, 0, 0.16); border: 1px solid "
+                                    "rgba(246, 180, 0, 0.55); border-radius: 5px; padding: 6px 8px; margin: 6px; }")
+        self.problems.linkActivated.connect(lambda link: self.tabs.setCurrentIndex(int(link.split(":")[1])))
+        self.problems.hide()
 
         left = QWidget()
         lv = QVBoxLayout(left)
@@ -231,6 +247,7 @@ class Main(QMainWindow):
         lv.addWidget(self.ai)
         line = QFrame(frameShape=QFrame.HLine, frameShadow=QFrame.Sunken)
         lv.addWidget(line)
+        lv.addWidget(self.problems)
         lv.addWidget(self.tabs, 1)
         left.setMinimumWidth(380)
 
@@ -258,7 +275,17 @@ class Main(QMainWindow):
         split.setStretchFactor(1, 1)
         split.setSizes([420, 860])
         split.setChildrenCollapsible(False)
-        self.setCentralWidget(split)
+        self.start = StartPage()
+        self.start.new_theme.connect(self.new)
+        self.start.from_desktop.connect(self.from_desktop)
+        self.start.open_file.connect(self.open)
+        self.start.open_path.connect(lambda p: self._open_path(Path(p)))
+        self.start.open_starter.connect(lambda p: self.open_starter(Path(p)))
+        self.start.manage.connect(self.manage_themes)
+        self.stack = QStackedWidget()
+        self.stack.addWidget(self.start)
+        self.stack.addWidget(split)
+        self.setCentralWidget(self.stack)
 
         self._toolbar()
         self._log_dock()
@@ -271,11 +298,18 @@ class Main(QMainWindow):
         self._icons_timer = QTimer(self, singleShot=True, interval=500)
         self._icons_timer.timeout.connect(self._build_preview_icons)
         self._icons_key = None
+        self._commit_timer = QTimer(self, singleShot=True, interval=600)
+        self._commit_timer.timeout.connect(self._commit)
+        self._check_timer = QTimer(self, singleShot=True, interval=400)
+        self._check_timer.timeout.connect(self._update_problems)
 
+        self.to_form()
         if path:
             self.load(Path(path))
+        if self.path:
+            self.show_editor()
         else:
-            self.to_form()
+            self.show_start()
         self._update_title()
 
     # --- chrome ---------------------------------------------------------------------
@@ -295,27 +329,40 @@ class Main(QMainWindow):
             tb.addAction(a)
             return a
 
+        self.home_act = act("Start", "go-home", self.show_start, None,
+                            "Recent themes, starting points and installed themes")
         act("New", "document-new", self.new, QKeySequence.New)
         act("Open…", "document-open", self.open, QKeySequence.Open)
         act("From Desktop", "camera-photo", self.from_desktop, None,
             "Start a theme from your current desktop: colors, styles, fonts, panels and wallpaper")
-        act("Save", "document-save", self.save, QKeySequence.Save,
+        self.save_act = act("Save", "document-save", self.save, QKeySequence.Save,
             f"Saves into {system.themes_dir()}/<name>/ the first time")
-        act("Save As…", "document-save-as", self.save_as, QKeySequence.SaveAs)
+        self.saveas_act = act("Save As…", "document-save-as", self.save_as, QKeySequence.SaveAs)
         tb.addSeparator()
-        act("Build", "run-build", self.do_build, "Ctrl+B", "Write theme files to build/")
-        act("Export…", "document-export", self.export, "Ctrl+E", "Pack a shareable .tar.gz with the wallpaper")
+        self.undo_act = act("Undo", "edit-undo", self.undo, QKeySequence.Undo, "Undo the last change (Ctrl+Z)")
+        self.redo_act = act("Redo", "edit-redo", self.redo, QKeySequence.Redo, "Redo (Ctrl+Shift+Z)")
+        for a in (self.undo_act, self.redo_act):
+            tb.widgetForAction(a).setToolButtonStyle(Qt.ToolButtonIconOnly)
+        tb.addSeparator()
+        self.build_act = act("Build", "run-build", self.do_build, "Ctrl+B", "Write theme files to build/")
+        self.export_act = act("Export…", "document-export", self.export, "Ctrl+E",
+                              "Pack a shareable .tar.gz with the wallpaper")
         tb.addSeparator()
         self.with_layout = QCheckBox("Replace panels")
         self.with_layout.setToolTip("Also replace your current panels with the theme's panel layout")
         tb.addWidget(self.with_layout)
         apply = act("Apply to desktop", "dialog-ok-apply", self.apply, "Ctrl+Return",
-                    "Build, install and apply to your live desktop")
+                    "Build, install and apply to your live desktop (you get 20 seconds to keep or undo it)")
+        self.apply_act = apply
         f = apply.font()
         f.setBold(True)
         apply.setFont(f)
         act("Undo Apply", "edit-undo", self.revert, None,
             "Put the desktop back the way it was before the last Apply (every install takes a restore point)")
+        act("Installed…", "preferences-desktop-theme-global", self.manage_themes, None,
+            "See and remove the themes kde-customizer has installed")
+        self._editor_actions = [self.save_act, self.saveas_act, self.undo_act, self.redo_act, self.build_act, self.export_act,
+                                self.apply_act, self.with_layout]
 
     def _log_dock(self) -> None:
         self.log = QPlainTextEdit(readOnly=True)
@@ -396,6 +443,25 @@ class Main(QMainWindow):
             lbl = QLabel(fld.name.title())
             lbl.setToolTip(hints.get(fld.name, ""))
             f.addRow(lbl, cf)
+        pick = QToolButton(text="Colors from an image", icon=QIcon.fromTheme("color-picker"),
+                           toolButtonStyle=Qt.ToolButtonTextBesideIcon, popupMode=QToolButton.InstantPopup)
+        pick.setToolTip("Make a readable palette from a picture: the background takes its main hue, the accent "
+                        "its most colorful part")
+        menu = QMenu(pick)
+        self.img_wallpaper = menu.addAction(QIcon.fromTheme("preferences-desktop-wallpaper"),
+                                            "From this theme's wallpaper", lambda: self.palette_from_image(None))
+        menu.addAction(QIcon.fromTheme("document-open"), "From an image…", self.palette_from_image_file)
+        menu.addSeparator()
+        self.img_mode = QActionGroup(menu)
+        for label, data in [("Dark or light: like the image", None), ("Dark theme", True), ("Light theme", False)]:
+            a = menu.addAction(label)
+            a.setCheckable(True)
+            a.setData(data)
+            a.setChecked(data is None)
+            self.img_mode.addAction(a)
+        menu.aboutToShow.connect(lambda: self.img_wallpaper.setEnabled(bool(self.theme.wallpaper)))
+        pick.setMenu(menu)
+        v.addWidget(pick, 0, Qt.AlignLeft)
         self.contrast = QLabel()
         self.contrast.setWordWrap(True)
         self.contrast.setTextFormat(Qt.RichText)
@@ -980,11 +1046,13 @@ class Main(QMainWindow):
         if not self.dirty:
             self.dirty = True
             self._update_title()
+        self._commit_timer.start()
         self._after_change()
 
     def _after_change(self) -> None:
         self._refresh.start()
         self._update_contrast()
+        self._check_timer.start()
         ics = self.theme.iconset
         key = (ics.generate, ics.base, ics.signature_dir, ics.app_icons, self.theme.palette.accent, self.theme.slug)
         if ics.generate and key != self._icons_key:
@@ -1035,20 +1103,146 @@ class Main(QMainWindow):
         mode = "Dark" if self.theme.dark else "Light"
         self.contrast.setText(f"<b>{mode} theme</b> — readability (WCAG contrast)<table>{''.join(rows)}</table>")
 
+    def _update_problems(self) -> None:
+        """`kdec check` on the theme being edited; each problem links to the tab where it's fixed."""
+        try:
+            found = ai.check(self.theme, self.installed)
+        except Exception:           # half-typed values: check again on the next edit
+            return
+        tabs = {"contrast": 1, "iconset": 3, "icons": 2, "cursor": 2, "widget": 2, "plasma": 2, "splash": 2,
+                "login": 2, "wallpaper": 2}
+
+        def tab(p: str) -> int:
+            return next((i for k, i in tabs.items() if p.startswith(k) or p.split()[0].startswith(k)), 1)
+        names = [self.tabs.tabText(i) for i in range(self.tabs.count())]
+
+        def text(p: str) -> str:        # the full lists of installed themes are too long for the strip
+            return html.escape(re.sub(r" \((installed|usable): [^)]*\)", "", p))
+        items = "".join(f"<li>{text(p)} — <a href='tab:{tab(p)}'>{names[tab(p)]}</a></li>" for p in found)
+        n = len(found)
+        self.problems.setText(f"<b>⚠ {n} thing{'s' if n > 1 else ''} to check</b>"
+                              f"<ul style='margin:2px 0 0 -20px'>{items}</ul>")
+        self.problems.setVisible(bool(found))
+
+    # --- undo / redo --------------------------------------------------------------
+    def _commit(self) -> None:
+        """Make the current theme one undo step (if it changed since the last one)."""
+        self._commit_timer.stop()
+        if self.theme == self._committed:
+            return
+        self._undo_stack.append(self._committed)
+        del self._undo_stack[:-100]
+        self._committed = copy.deepcopy(self.theme)
+        self._redo_stack.clear()
+        self._update_undo()
+
+    def _reset_history(self) -> None:
+        self._commit_timer.stop()
+        self._undo_stack.clear()
+        self._redo_stack.clear()
+        self._committed = copy.deepcopy(self.theme)
+        self._update_undo()
+
+    def _update_undo(self) -> None:
+        self.undo_act.setEnabled(bool(self._undo_stack) and self.stack.currentIndex() == 1)
+        self.redo_act.setEnabled(bool(self._redo_stack) and self.stack.currentIndex() == 1)
+        self.ai.undo.setEnabled(bool(self._undo_stack))
+
+    def _step_to(self, theme: spec.Theme) -> None:
+        tab = self.tabs.currentIndex()
+        self.set_theme(copy.deepcopy(theme), True)
+        self.tabs.setCurrentIndex(tab)
+        self._update_undo()
+
+    def undo(self) -> None:
+        self._commit()
+        if self._undo_stack:
+            self._redo_stack.append(self._committed)
+            self._committed = self._undo_stack.pop()
+            self._step_to(self._committed)
+
+    def redo(self) -> None:
+        self._commit()
+        if self._redo_stack:
+            self._undo_stack.append(self._committed)
+            self._committed = self._redo_stack.pop()
+            self._step_to(self._committed)
+
+    # --- start page -----------------------------------------------------------------
+    def show_start(self) -> None:
+        self.start.refresh()
+        self.stack.setCurrentIndex(0)
+        for a in self._editor_actions:
+            a.setEnabled(False)
+        self.home_act.setEnabled(False)
+        self._update_undo()
+        self._update_title()
+
+    def show_editor(self) -> None:
+        self.stack.setCurrentIndex(1)
+        for a in self._editor_actions:
+            a.setEnabled(True)
+        self.home_act.setEnabled(True)
+        self._update_undo()
+        self._update_title()
+
+    def _open_path(self, path: Path) -> None:
+        if path == self.path and not self.dirty:
+            self.show_editor()
+        elif self._confirm_discard():
+            self.load(path)
+
+    def open_starter(self, path: Path) -> None:
+        """A built-in starting point opens as a new, unsaved theme (first Save names it)."""
+        if not self._confirm_discard():
+            return
+        try:
+            theme = spec.load(path)
+        except Exception as e:
+            QMessageBox.critical(self, "Load failed", str(e))
+            return
+        self.path = None
+        self._fresh(theme, False)
+
+    def manage_themes(self) -> None:
+        ThemeManager(self).exec()
+
+    # --- palette from an image --------------------------------------------------------
+    def palette_from_image_file(self) -> None:
+        f, _ = QFileDialog.getOpenFileName(self, "Colors from an image", str(Path.home()),
+                                           "Images (*.png *.jpg *.jpeg *.webp *.bmp)")
+        if f:
+            self.palette_from_image(Path(f))
+
+    def palette_from_image(self, path: Path | None) -> None:
+        from .. import imagepalette
+        path = path or Path(self.theme.wallpaper).expanduser()
+        try:
+            pal = imagepalette.from_image(path, self.img_mode.checkedAction().data(), self.theme.palette)
+        except Exception as e:      # unreadable image
+            QMessageBox.warning(self, "Colors from an image", str(e))
+            return
+        self._commit()
+        self._loading = True
+        for k, cf in self.colors.items():
+            cf.set(getattr(pal, k))
+        self._loading = False
+        self.changed()
+        self._commit()
+        self.statusBar().showMessage(f"Colors taken from {path.name}. Ctrl+Z puts the old ones back.", 8000)
+
     def _update_title(self) -> None:
+        if self.stack.currentIndex() == 0:
+            self.setWindowTitle("KDE Customizer")
+            return
         name = self.path.name if self.path else "unsaved theme"
         self.setWindowTitle(f"{'• ' if self.dirty else ''}{name} — KDE Customizer")
 
     # --- AI -----------------------------------------------------------------------------
     def _ai_theme(self, theme: spec.Theme) -> None:
-        self._history.append(copy.deepcopy(self.from_form()))
-        self.ai.undo.setEnabled(True)
+        self._commit()
         self.set_theme(theme, True)
-
-    def _undo_ai(self) -> None:
-        if self._history:
-            self.set_theme(self._history.pop(), True)
-        self.ai.undo.setEnabled(bool(self._history))
+        self._commit()                  # one undo step back to before the AI's version
 
     # --- file actions -----------------------------------------------------------------
     def _confirm_discard(self) -> bool:
@@ -1066,10 +1260,16 @@ class Main(QMainWindow):
         self.dirty = dirty
         self._update_title()
 
+    def _fresh(self, theme: spec.Theme, dirty: bool) -> None:
+        """A different theme: the undo history starts over."""
+        self.set_theme(theme, dirty)
+        self._reset_history()
+        self.show_editor()
+
     def new(self) -> None:
         if self._confirm_discard():
             self.path = None
-            self.set_theme(spec.Theme(name="New Theme", id="org.kdecustomizer.newtheme"), False)
+            self._fresh(spec.Theme(name="New Theme", id="org.kdecustomizer.newtheme"), False)
 
     def from_desktop(self) -> None:
         """New unsaved theme = snapshot of the running desktop."""
@@ -1082,7 +1282,7 @@ class Main(QMainWindow):
             QMessageBox.critical(self, "Snapshot failed", str(e))
             return
         self.path = None
-        self.set_theme(theme, True)
+        self._fresh(theme, True)
         self.statusBar().showMessage(snapshot.summary(theme).replace("\n", " · "), 10000)
 
     def load(self, path: Path) -> None:
@@ -1092,7 +1292,8 @@ class Main(QMainWindow):
             QMessageBox.critical(self, "Load failed", str(e))
             return
         self.path = path
-        self.set_theme(theme, False)
+        self._fresh(theme, False)
+        library.add_recent(path)
 
     def open(self) -> None:
         if not self._confirm_discard():
@@ -1174,6 +1375,7 @@ class Main(QMainWindow):
             except ValueError:
                 pass
         spec.save(out, self.path)
+        library.add_recent(self.path)
         self.dirty = False
         self._update_title()
         self.statusBar().showMessage(f"Saved {self.path}", 4000)
@@ -1262,16 +1464,25 @@ class Main(QMainWindow):
     def apply(self) -> None:
         if self.proc.state() != QProcess.NotRunning:
             return
+        t = self.theme
+        system_parts = [n for on, n in [(t.login_screen.generate, "login screen"),
+                                        (t.boot_splash.generate, "boot splash")] if on]
         r = QMessageBox.question(self, "Apply to desktop",
-                                 f"Install and apply “{self.theme.name}” to your live desktop now?"
-                                 + ("\n\nYour current panels will be replaced." if self.with_layout.isChecked() else ""))
+                                 f"Install and apply “{t.name}” to your live desktop now?"
+                                 + ("\n\nYour current panels will be replaced." if self.with_layout.isChecked() else "")
+                                 + (f"\n\nThe {' and '.join(system_parts)} need your admin password (asked only "
+                                    "when they changed)." if system_parts else "")
+                                 + "\n\nYou'll have 20 seconds to keep the result or go back.")
         if r != QMessageBox.Yes:
             return
         out = self.do_build()
         if out:
             self.say(f"$ {out / 'install.sh'}")
-            self._proc_done = lambda code: "Applied." if code == 0 else f"install.sh failed (exit {code}) — see Output"
-            self.proc.start(str(out / "install.sh"), ["--layout"] if self.with_layout.isChecked() else [])
+            dlg = ApplyDialog(self, t.name, out / "install.sh",
+                              ["--layout"] if self.with_layout.isChecked() else [], bool(system_parts))
+            dlg.output.connect(self.log.appendPlainText)
+            dlg.exec()
+            self.statusBar().showMessage(dlg.result_text, 8000)
 
     def revert(self) -> None:
         from .. import restorepoints

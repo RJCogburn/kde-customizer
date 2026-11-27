@@ -77,10 +77,20 @@ Ubuntu, Debian, Fedora, openSUSE and Arch, and attaches the files to the GitHub 
 
 ## Use
 
-**GUI:** `kdec-gui examples/midnight.toml`
+**GUI:** `kdec-gui` (or `kdec-gui mytheme.toml`)
+
+It opens on a start page with your recent themes and nine starting points (five dark, four light), each shown
+as a small preview. Pick one, start from scratch, or **From my desktop**.
 
 Edit colors, panels, fonts and the rest in the tabs on the left. The preview on the right redraws as you
-type and uses the theme's own icon set. **Apply to desktop** installs the theme and switches to it.
+type and uses the theme's own icon set. **Ctrl+Z / Ctrl+Shift+Z** undo and redo any change, including AI
+changes. A yellow strip above the tabs lists anything to fix (hard-to-read colors, an icon or cursor theme
+that isn't installed…), with a link to the tab where it's fixed. **Colors from an image** on the Colors tab
+makes a readable palette from the wallpaper or any picture.
+
+**Apply to desktop** installs the theme and switches to it, showing each step. Afterwards you have 20 seconds
+to click **Keep changes**; with no answer (or **Undo**) the desktop goes back to how it was, like the display
+settings do. **Installed…** lists the themes kde-customizer has installed and removes the ones you don't use.
 **From Desktop** starts a theme from what you're running now. **Show:** above the preview opens the app
 launcher, calendar, system tray or an app dialog in your theme (or click the launcher, clock or tray in the
 preview's panel). The **Tweaks** tab edits any KDE setting,
@@ -100,6 +110,8 @@ kdec export mytheme.toml               # shareable <Name>.tar.gz including the w
 kdec check mytheme.toml                # readability (contrast) and missing-theme warnings
 kdec revert                            # undo the last apply (kdec revert --list, kdec revert 2, …)
 kdec wallpaper mytheme.toml "misty mountains at dusk"   # render a wallpaper in the palette (local image AI)
+kdec palette mytheme.toml [image]      # colors from an image (default: the theme's wallpaper); --dark/--light
+kdec installed                         # themes kde-customizer installed; --remove NAME deletes one
 ```
 
 **Undo:** every install first records your current desktop (colors, styles, icons, cursors, fonts, wallpaper,

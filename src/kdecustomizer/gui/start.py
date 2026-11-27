@@ -1,0 +1,195 @@
+"""Start page: recent themes and the built-in starting points as preview cards, plus New / From Desktop / Open."""
+from __future__ import annotations
+
+from pathlib import Path
+
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QFont, QIcon, QPixmap
+from PySide6.QtWidgets import (
+    QHBoxLayout, QLabel, QListView, QListWidget, QListWidgetItem, QMenu, QPushButton, QScrollArea, QVBoxLayout,
+    QWidget,
+)
+
+from .. import library, spec
+from .preview import Preview
+
+THUMB = QSize(256, 160)
+_cache: dict[tuple[str, float], QPixmap] = {}       # (spec path, mtime) -> thumbnail
+
+
+def thumbnail(path: Path, renderer: Preview) -> QPixmap:
+    """The editor's preview of a spec, small. Cached per file version."""
+    try:
+        key = (str(path), path.stat().st_mtime)
+    except OSError:
+        return QPixmap()
+    if key not in _cache:
+        renderer.show_theme(spec.load(path))
+        _cache[key] = renderer.grab().scaled(THUMB, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    return _cache[key]
+
+
+class Cards(QListWidget):
+    """A wrapping grid of theme cards; each item's data is its spec path."""
+    def __init__(self):
+        super().__init__()
+        self.setViewMode(QListView.IconMode)
+        self.setIconSize(THUMB)
+        self.setGridSize(QSize(THUMB.width() + 24, THUMB.height() + 48))
+        self.setResizeMode(QListView.Adjust)
+        self.setMovement(QListView.Static)
+        self.setWrapping(True)
+        self.setWordWrap(True)
+        self.setFrameShape(QListWidget.NoFrame)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setStyleSheet("QListWidget { background: transparent; }")
+
+    def fit(self) -> None:
+        """Grow to show every row (the page scrolls, not each grid)."""
+        if not self.count():
+            self.setFixedHeight(0)
+            return
+        per_row = max(1, self.viewport().width() // self.gridSize().width())
+        rows = -(-self.count() // per_row)
+        self.setFixedHeight(rows * self.gridSize().height() + 8)
+
+    def keyPressEvent(self, e) -> None:
+        """Enter opens the selected card (clicks open too; itemActivated would fire twice with single-click)."""
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter) and self.currentItem():
+            self.itemClicked.emit(self.currentItem())
+        else:
+            super().keyPressEvent(e)
+
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        self.fit()
+
+
+class StartPage(QWidget):
+    new_theme = Signal()
+    from_desktop = Signal()
+    open_file = Signal()
+    open_path = Signal(str)          # a recent theme
+    open_starter = Signal(str)       # a built-in starting point (opens as a new, unsaved theme)
+    manage = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self._renderer = Preview()
+        self._renderer.resize(640, 400)
+        self._todo: list[QListWidgetItem] = []
+        self._timer = QTimer(self, interval=0)
+        self._timer.timeout.connect(self._render_next)
+
+        inner = QWidget()
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(32, 24, 32, 24)
+        v.setSpacing(10)
+        title = QLabel("KDE Customizer")
+        f = QFont(title.font())
+        f.setPointSizeF(f.pointSizeF() * 1.8)
+        f.setBold(True)
+        title.setFont(f)
+        v.addWidget(title)
+        sub = QLabel("Make a complete Plasma theme (colors, panels, icons, cursors, title bars, login screen and "
+                     "more) from one set of colors. Start from one of these, or from scratch.")
+        sub.setWordWrap(True)
+        v.addWidget(sub)
+
+        row = QHBoxLayout()
+        for text, icon, sig, tip in [
+            ("New theme", "document-new", self.new_theme, "Start from the default colors"),
+            ("From my desktop", "camera-photo", self.from_desktop,
+             "Start from what your desktop looks like now: colors, styles, fonts, panels and wallpaper"),
+            ("Open…", "document-open", self.open_file, "Open a theme file (.toml)"),
+            ("Installed themes…", "preferences-desktop-theme-global", self.manage,
+             "See and remove the themes kde-customizer has installed"),
+        ]:
+            b = QPushButton(QIcon.fromTheme(icon), text)
+            b.setToolTip(tip)
+            b.clicked.connect(sig)
+            row.addWidget(b)
+        row.addStretch()
+        v.addLayout(row)
+
+        self.recent_label = self._heading("Recent themes", v)
+        self.recent = Cards()
+        self.recent.itemClicked.connect(lambda it: self.open_path.emit(it.data(Qt.UserRole)))
+        self.recent.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.recent.customContextMenuRequested.connect(self._recent_menu)
+        v.addWidget(self.recent)
+
+        self._heading("Starting points", v)
+        self.starters = Cards()
+        self.starters.itemClicked.connect(lambda it: self.open_starter.emit(it.data(Qt.UserRole)))
+        v.addWidget(self.starters)
+        v.addStretch()
+
+        area = QScrollArea()
+        area.setWidget(inner)
+        area.setWidgetResizable(True)
+        area.setFrameShape(QScrollArea.NoFrame)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(area)
+        self.refresh()
+
+    def _heading(self, text: str, v: QVBoxLayout) -> QLabel:
+        lbl = QLabel(text)
+        f = QFont(lbl.font())
+        f.setPointSizeF(f.pointSizeF() * 1.2)
+        f.setBold(True)
+        lbl.setFont(f)
+        v.addSpacing(8)
+        v.addWidget(lbl)
+        return lbl
+
+    def refresh(self) -> None:
+        """Re-read the recent list (the starters never change)."""
+        self._fill(self.recent, library.recent(), lambda p, t: t.name, lambda p, t: str(p))
+        has = self.recent.count() > 0
+        self.recent_label.setVisible(has)
+        self.recent.setVisible(has)
+        if not self.starters.count():
+            self._fill(self.starters, library.starters(), lambda p, t: t.name, lambda p, t: t.description)
+        self._timer.start()
+
+    def _fill(self, grid: Cards, paths: list[Path], label, tip) -> None:
+        grid.clear()
+        for p in paths:
+            try:
+                t = spec.load(p)
+            except Exception:       # a broken recent file: just leave it out
+                continue
+            it = QListWidgetItem(label(p, t))
+            it.setData(Qt.UserRole, str(p))
+            it.setToolTip(tip(p, t))
+            it.setTextAlignment(Qt.AlignHCenter | Qt.AlignTop)
+            it.setSizeHint(QSize(THUMB.width() + 16, THUMB.height() + 40))   # thumbnails arrive later
+            grid.addItem(it)
+            self._todo.append(it)
+        grid.fit()
+
+    def _render_next(self) -> None:
+        """One thumbnail per event-loop turn, so the page shows at once and fills in."""
+        while self._todo:
+            it = self._todo.pop(0)
+            if it.listWidget() is None:        # cleared since
+                continue
+            try:
+                it.setIcon(QIcon(thumbnail(Path(it.data(Qt.UserRole)), self._renderer)))
+            except Exception:
+                pass
+            return
+        self._timer.stop()
+
+    def _recent_menu(self, pos) -> None:
+        it = self.recent.itemAt(pos)
+        if not it:
+            return
+        m = QMenu(self)
+        m.addAction(QIcon.fromTheme("document-open"), "Open", lambda: self.open_path.emit(it.data(Qt.UserRole)))
+        m.addAction(QIcon.fromTheme("list-remove"), "Remove from this list",
+                    lambda: (library.remove_recent(it.data(Qt.UserRole)), self.refresh()))
+        m.exec(self.recent.viewport().mapToGlobal(pos))

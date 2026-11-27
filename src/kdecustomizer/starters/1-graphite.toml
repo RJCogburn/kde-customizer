@@ -1,0 +1,107 @@
+id = "org.kdecustomizer.graphite"
+name = "Graphite"
+author = ""
+description = "Neutral charcoal with a calm teal accent, for long working days"
+version = "1.0"
+icons = "breeze-dark"
+cursors = "breeze_cursors"
+widget_style = "Breeze"
+plasma_style = "default"
+splash = "org.kde.Breeze"
+wallpaper = ""
+konsole = true
+
+[palette]
+background = "#1b1c1e"
+surface = "#25272a"
+foreground = "#e6e7e8"
+accent = "#2fb8a8"
+positive = "#5cc97b"
+neutral = "#e0b341"
+negative = "#ef6b6b"
+link = ""
+visited = ""
+
+[plasma]
+generate = true
+blur = true
+adaptive_transparency = true
+radius = 6
+opacity = 0.9
+outline = false
+
+[iconset]
+generate = false
+base = "Papirus-Dark"
+signature = "none"
+style = ""
+signature_dir = ""
+app_icons = "keep"
+
+[cursorset]
+generate = false
+base = "breeze_cursors"
+fill = "background"
+
+[widgets]
+generate = false
+radius = 4
+
+[decoration]
+library = "org.kde.breeze"
+theme = "Breeze"
+buttons_left = "M"
+buttons_right = "IAX"
+generate = true
+radius = 6
+title_height = 30
+title_align = "left"
+border = 2
+button_style = "glyph"
+
+[splash_screen]
+generate = true
+background = "gradient"
+text = ""
+
+[login_screen]
+generate = false
+background = "wallpaper"
+clock = true
+
+[boot_splash]
+generate = false
+background = "gradient"
+text = ""
+
+[gtk]
+generate = true
+flatpak = false
+
+[apps]
+kitty = true
+alacritty = true
+wezterm = true
+ghostty = true
+vscode = true
+firefox = true
+thunderbird = true
+
+[light_dark]
+auto = false
+
+[fonts]
+general = ""
+fixed = ""
+small = ""
+toolbar = ""
+menu = ""
+window_title = ""
+
+[[panels]]
+location = "bottom"
+height = 44
+floating = false
+alignment = "center"
+length_mode = "fill"
+widgets = ["org.kde.plasma.kickoff", "org.kde.plasma.pager", "org.kde.plasma.icontasks", "org.kde.plasma.marginsseparator", "org.kde.plasma.systemtray", "org.kde.plasma.digitalclock", "org.kde.plasma.showdesktop"]
