@@ -7,13 +7,15 @@ from kdecustomizer import imagegen
 
 NAMES = ["animaPencilXL_v500.safetensors", "ponyDiffusionV6XL.safetensors", "juggernautXL_v8Rundiffusion.safetensors",
          "juggernautXL_ragnarokBy.safetensors", "realvisxlV40_v40LightningBakedvae.safetensors",
-         "dreamshaperXL_v21TurboDPMSDE.safetensors", "sd_xl_refiner_1.0.safetensors", "analogMadness_v70-inpainting.safetensors"]
+         "dreamshaperXL_v21TurboDPMSDE.safetensors", "sd_xl_refiner_1.0.safetensors",
+         "analogMadness_v70-inpainting.safetensors"]
 
 
 def test_pick_model_prefers_clean_render_models():
     assert imagegen.pick_model(NAMES) in ("juggernautXL_v8Rundiffusion.safetensors",
                                           "juggernautXL_ragnarokBy.safetensors")
-    assert imagegen.pick_model(["sd_xl_base_1.0.safetensors", "someAnimeMix.safetensors"]) == "sd_xl_base_1.0.safetensors"
+    picked = imagegen.pick_model(["sd_xl_base_1.0.safetensors", "someAnimeMix.safetensors"])
+    assert picked == "sd_xl_base_1.0.safetensors"
     # only unsuitable ones (lightning/turbo/pony/inpainting/refiner) or unknown names: no pick -> default
     assert imagegen.pick_model(["ponyDiffusionV6XL.safetensors", "x_turbo.safetensors", "mystery.safetensors"]) is None
 

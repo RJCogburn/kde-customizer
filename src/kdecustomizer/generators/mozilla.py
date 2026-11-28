@@ -44,6 +44,7 @@ def _hex(c: RGB | str) -> str:
 
 
 def colors(theme: Theme) -> dict[str, str]:
+    """The browser roles (frame, toolbar, field, sidebar, accent…) from colors.scheme()."""
     s = colors_gen.scheme(theme)
     p = theme.palette.resolved()
     dark = theme.dark
@@ -75,6 +76,7 @@ def colors(theme: Theme) -> dict[str, str]:
 
 
 def firefox_css(theme: Theme) -> str:
+    """userChrome CSS for Firefox: current and older variable names, !important on :root so add-on themes don't win."""
     c = colors(theme)
     v = {
         # window frame / tab strip
@@ -137,6 +139,7 @@ def firefox_css(theme: Theme) -> str:
 
 
 def thunderbird_css(theme: Theme) -> str:
+    """userChrome CSS for Thunderbird's layout variables."""
     c = colors(theme)
     v = {
         "--layout-background-0": c["toolbar"], "--layout-background-1": c["sidebar"],

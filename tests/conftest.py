@@ -28,7 +28,28 @@ def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_DIRS", str(tmp_path / "etc-xdg"))
     monkeypatch.setenv("XDG_DATA_DIRS", str(tmp_path / "usr-share"))
     (tmp_path / "usr-share").mkdir()
+    _guard_path(tmp_path, monkeypatch)
     return home
+
+
+# Tools that reach outside the temp HOME: root (pkexec, sudo), the running session (Plasma, KWin, D-Bus, the user's
+# systemd) or the user's apps. Every test gets do-nothing stand-ins first on PATH, so a script that runs by mistake
+# can't change the real system. pkexec/sudo refuse, like a cancelled password prompt. A test that wants to see the
+# calls puts its own stubs in front.
+GUARDED = ["pkexec", "sudo", "plasma-apply-lookandfeel", "plasma-apply-colorscheme", "plasma-apply-desktoptheme",
+           "plasma-apply-cursortheme", "plasma-apply-wallpaperimage", "plasma-changeicons", "qdbus6", "qdbus",
+           "dbus-send", "kquitapp6", "plasmashell", "systemctl", "code", "codium", "code-oss", "flatpak",
+           "plymouth-set-default-theme", "xdg-open"]
+
+
+def _guard_path(tmp_path: Path, monkeypatch) -> None:
+    bin_ = tmp_path / "guard-bin"
+    bin_.mkdir()
+    for c in GUARDED:
+        refuse = c in ("pkexec", "sudo")
+        (bin_ / c).write_text(f"#!/bin/sh\necho 'test guard: {c} not run' >&2\nexit {126 if refuse else 0}\n")
+        (bin_ / c).chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_}:{os.environ['PATH']}")
 
 
 @pytest.fixture

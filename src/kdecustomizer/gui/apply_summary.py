@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import shutil
+from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QFont
@@ -69,10 +70,18 @@ def warnings(theme: spec.Theme) -> list[str]:
 
 
 class ApplySummary(QDialog):
-    def __init__(self, parent, theme: spec.Theme, layout: bool):
+    """What Apply will change, with a checkbox per skippable part and the admin-password note."""
+
+    def __init__(self, parent, theme: spec.Theme, layout: bool, built: Path | None = None):
+        """`built`: the theme's build folder — login screen / boot splash that haven't changed since the last
+        Apply are marked (install.sh skips them, so no password prompt)."""
         super().__init__(parent)
         self.setWindowTitle("Apply to desktop")
         self.theme = theme
+        try:
+            self.unchanged = build.unchanged_system_parts(theme, built) if built else set()
+        except OSError:
+            self.unchanged = set()
         self.settings = QSettings("kdecustomizer", "kdec-gui")
         skipped = set(self.settings.value(self._key(), "", str).split(",")) - {""}
         v = QVBoxLayout(self)
@@ -92,6 +101,8 @@ class ApplySummary(QDialog):
         for key, label, note in rows:
             b = QCheckBox(label)
             b.setChecked(layout if key == "layout" else key not in skipped)
+            if key in self.unchanged:
+                note = "unchanged since the last Apply: left as it is, no password needed"
             if note:
                 b.setToolTip(note)
             v.addWidget(b)
@@ -105,10 +116,16 @@ class ApplySummary(QDialog):
             lbl = QLabel("⚠ " + html.escape(w))
             lbl.setWordWrap(True)
             v.addWidget(lbl)
+        self.password = QLabel()
+        self.password.setWordWrap(True)
+        v.addSpacing(6)
+        v.addWidget(self.password)
+        for b in self.boxes.values():
+            b.toggled.connect(self._update_password)
+        self._update_password()
         tail = QLabel("Everything you have now is saved first. Afterwards you get "
                       "20 seconds to keep the result, or it goes back.")
         tail.setWordWrap(True)
-        v.addSpacing(6)
         v.addWidget(tail)
         bb = QDialogButtonBox()
         ok = bb.addButton("Apply", QDialogButtonBox.AcceptRole)
@@ -136,8 +153,19 @@ class ApplySummary(QDialog):
     def args(self) -> list[str]:
         return (["--layout"] if self.replace_panels else []) + build.skip_args(self.skipped)
 
+    def password_parts(self) -> list[str]:
+        """System-wide parts that will ask for the admin password this time."""
+        names = {"login": "login screen", "boot": "boot splash"}
+        return [names[k] for k in ("login", "boot")
+                if k in self.boxes and self.boxes[k].isChecked() and k not in self.unchanged]
+
     def needs_password(self) -> bool:
-        return any(k in self.boxes and self.boxes[k].isChecked() for k in ("login", "boot"))
+        return bool(self.password_parts())
+
+    def _update_password(self, *_) -> None:
+        parts = self.password_parts()
+        self.password.setText("🔒 You'll be asked for your admin password once (" + " and ".join(parts) + ")."
+                              if parts else "No admin password needed.")
 
     def _accept(self) -> None:
         self.settings.setValue(self._key(), ",".join(self.skipped))

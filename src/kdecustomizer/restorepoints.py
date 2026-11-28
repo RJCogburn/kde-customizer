@@ -16,6 +16,8 @@ def root() -> Path:
 
 @dataclass
 class Point:
+    """One restore point folder (taken right before installing `theme`)."""
+
     path: Path
     when: datetime | None
     theme: str              # the theme that was installed right after this point

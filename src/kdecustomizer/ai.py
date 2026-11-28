@@ -89,8 +89,9 @@ color scheme, Plasma style, Konsole scheme, global theme package, panel layout a
   the pointer body: "background" (classic: dark body on dark themes, light on light), "foreground"
   (inverted, high visibility) or "accent" (colorful). Outline, spinner and badges follow the palette.
 - `[login_screen] generate = true` puts the theme (colors, Plasma style, icons, cursors, fonts) on the
-  login screen (Plasma Login Manager, or SDDM with its Breeze theme); `background` wallpaper (the theme's; palette color without one) | color,
-  `clock` true/false. Installing it asks for the admin password, so only enable it when asked.
+  login screen (Plasma Login Manager, or SDDM with its Breeze theme); `background` wallpaper (the theme's;
+  palette color without one) | color, `clock` true/false. Installing it asks for the admin password, so
+  only enable it when asked.
 - `[boot_splash] generate = true` makes a Plymouth boot splash (theme name + accent progress bar, also the
   disk-unlock password prompt), `background` gradient | solid, `text` ("" = the theme name). Installing asks for
   the admin password and rebuilds the initramfs, so only enable it when asked.
@@ -125,7 +126,7 @@ color scheme, Plasma style, Konsole scheme, global theme package, panel layout a
 - `[iconset]` builds a matching icon theme: `generate = true` recolors `base` (an installed SVG icon theme,
   e.g. Papirus-Dark, breeze-dark) to the accent and replaces `icons`. Set `style` to a short visual
   description for custom signature icons (e.g. "brushed champagne-gold metal, dark graphite glass").
-  Leave `signature` and `signature_dir` as they are.
+  Leave `signature`, `signature_dir` and `custom_dir` (the user's own icons) as they are.
 - `[tweaks.<file>.<group>]` raw KDE config writes, e.g. `[tweaks.kwinrc.Plugins] blurEnabled = true`.
   Only use keys you are sure exist.
 - Do NOT set `wallpaper` (the user picks the file) or `author` (the user fills that in).
@@ -277,6 +278,8 @@ def _clean(block: dict) -> dict:
 
 
 def _pdf_text(b64: str) -> str:
+    """Text of a base64 PDF (pypdf), for providers that can't read PDFs themselves. Raises AIError if pypdf is missing
+    or the text is too long."""
     try:
         from pypdf import PdfReader
     except ImportError:
@@ -311,6 +314,7 @@ def parse_reply(text: str, current: spec.Theme | None = None) -> spec.Theme:
         theme.author = current.author
         theme.iconset.signature = current.iconset.signature        # generated files are the user's
         theme.iconset.signature_dir = current.iconset.signature_dir
+        theme.iconset.custom_dir = current.iconset.custom_dir
     return theme
 
 
@@ -352,6 +356,17 @@ def check(theme: spec.Theme, installed: dict[str, list[str]] | None = None) -> l
         if find_theme_dir(theme.iconset.base) is None:
             out.append(f"iconset.base = {theme.iconset.base!r} is not installed (installed: "
                        f"{', '.join(installed.get('icons', []))})")
+    if theme.iconset.custom_dir:
+        from . import iconnames
+        own = iconnames.custom_icons(theme.iconset.custom_dir)
+        if not Path(theme.iconset.custom_dir).expanduser().is_dir():
+            out.append(f"iconset.custom_dir: folder {theme.iconset.custom_dir} doesn't exist")
+        elif not theme.iconset.generate and own:
+            out.append("iconset.custom_dir: your own icons are only used with iconset.generate = true")
+        elif theme.iconset.generate and own and (bad := iconnames.unknown_names(own, theme.iconset.base)):
+            out.append("iconset.custom_dir: nothing asks for " + ", ".join(f"{n}{own[n].suffix}" for n in bad[:6])
+                       + (f" and {len(bad) - 6} more" if len(bad) > 6 else "")
+                       + " — check the file names (Icons › Icon names…)")
     return out
 
 
@@ -378,6 +393,8 @@ def _image_payload(path: str) -> tuple[str, str] | None:
 
 
 def _call_anthropic(prov: Provider, system_prompt: str, messages: list[dict], api_key: str | None) -> str:
+    """One request to Claude via the Anthropic SDK (beta messages API, so PDFs are read natively). Returns the reply
+    text."""
     try:
         import anthropic
     except ImportError:
@@ -443,7 +460,8 @@ def _call_claude_code(prov: Provider, system_prompt: str, messages: list[dict], 
         prompt = "\n\n".join(parts) if len(parts) > 1 else "\n\n".join(parts).split("\n", 1)[1]
 
         cmd = [exe, "-p", "--output-format", "json", "--system-prompt", system_prompt,
-               "--no-session-persistence", "--strict-mcp-config", "--max-turns", str(4 + 4 * len(files))]  # long PDFs take several Reads
+               # long PDFs take several Reads
+               "--no-session-persistence", "--strict-mcp-config", "--max-turns", str(4 + 4 * len(files))]
         cmd += ["--tools", "Read", "--allowedTools", "Read"] if files else ["--tools", ""]
         if prov.model:
             cmd += ["--model", prov.model]
@@ -466,6 +484,8 @@ def _call_claude_code(prov: Provider, system_prompt: str, messages: list[dict], 
 
 
 def _to_openai(system_prompt: str, messages: list[dict]) -> list[dict]:
+    """Our Anthropic-style messages -> OpenAI chat format: system prompt first, images as data URLs, PDFs and documents
+    as their text."""
     out = [{"role": "system", "content": system_prompt}]
     for m in messages:
         if isinstance(m["content"], str):
@@ -487,6 +507,8 @@ def _to_openai(system_prompt: str, messages: list[dict]) -> list[dict]:
 
 
 def _call_openai(prov: Provider, system_prompt: str, messages: list[dict], api_key: str | None) -> str:
+    """One request to an OpenAI-compatible /chat/completions endpoint (OpenAI, Gemini, OpenRouter, Ollama, LM Studio)
+    with urllib. Returns the reply text."""
     if not prov.model:
         raise AIError(f"{prov.name}: choose a model name in AI settings")
     key = api_key or (os.environ.get(prov.key_env, "") if prov.key_env else "")

@@ -4,14 +4,14 @@ from __future__ import annotations
 import html
 from pathlib import Path
 
-from PySide6.QtCore import QDateTime, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QIcon, QPixmap
+from PySide6.QtCore import QDateTime, QSettings, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QFont, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QListView, QListWidget, QListWidgetItem, QMenu, QPushButton, QScrollArea,
     QVBoxLayout, QWidget,
 )
 
-from .. import library, spec
+from .. import __version__, installed, library, spec
 from .preview import Preview
 
 THUMB = QSize(256, 160)
@@ -32,6 +32,7 @@ def thumbnail(path: Path, renderer: Preview) -> QPixmap:
 
 class Cards(QListWidget):
     """A wrapping grid of theme cards; each item's data is its spec path."""
+
     MIN_CELL = THUMB.width() + 24
 
     def __init__(self):
@@ -82,8 +83,11 @@ class Cards(QListWidget):
 
 
 class StartPage(QWidget):
+    """Recent themes and starting points as preview cards, plus the start actions and banners."""
+
     new_theme = Signal()
     from_desktop = Signal()
+    from_image = Signal()            # a new theme in the colors of a picture, with it as the wallpaper
     open_file = Signal()
     open_path = Signal(str)          # a recent theme
     open_starter = Signal(str)       # a built-in starting point (opens as a new, unsaved theme)
@@ -138,11 +142,40 @@ class StartPage(QWidget):
         rh.addWidget(b)
         v.addWidget(self.recovery)
 
+        # a newer release (AppImage / tarball only: see updates.py)
+        self.update_bar = QFrame()
+        self.update_bar.setObjectName("update")
+        self.update_bar.setStyleSheet("#update { background: rgba(39, 174, 96, 0.14); border: 1px solid "
+                                      "rgba(39, 174, 96, 0.6); border-radius: 6px; }")
+        uh = QHBoxLayout(self.update_bar)
+        uh.setContentsMargins(10, 6, 6, 6)
+        icon = QLabel()
+        icon.setPixmap(QIcon.fromTheme("update-none", QIcon.fromTheme("system-software-update")).pixmap(22, 22))
+        uh.addWidget(icon)
+        self.update_text = QLabel()
+        self.update_text.setWordWrap(True)
+        uh.addWidget(self.update_text, 1)
+        self.update_url = ""
+        b = QPushButton(QIcon.fromTheme("download"), "Download")
+        b.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self.update_url)))
+        uh.addWidget(b)
+        b = QPushButton("Not now")
+        b.clicked.connect(self.update_bar.hide)
+        uh.addWidget(b)
+        b = QPushButton("Don't check")
+        b.setToolTip("Stop looking for new versions (no more requests to GitHub)")
+        b.clicked.connect(self._no_updates)
+        uh.addWidget(b)
+        self.update_bar.hide()
+        v.addWidget(self.update_bar)
+
         row = QHBoxLayout()
         for text, icon, sig, tip in [
             ("New theme", "document-new", self.new_theme, "Start from the default colors"),
             ("From my desktop", "camera-photo", self.from_desktop,
              "Start from what your desktop looks like now: colors, styles, fonts, panels and wallpaper"),
+            ("From a picture…", "viewimage", self.from_image,
+             "Pick an image (a photo, artwork, a wallpaper): the theme takes its colors and uses it as the wallpaper"),
             ("Open…", "document-open", self.open_file,
              "Open a theme file (.toml) — or drop one, or a shared .tar.gz, on this window"),
             ("Install a shared theme…", "document-import", self.install_shared,
@@ -156,6 +189,8 @@ class StartPage(QWidget):
             b.setToolTip(tip)
             b.clicked.connect(sig)
             row.addWidget(b)
+            if sig is self.manage:
+                self.manage_btn = b
         row.addStretch()
         v.addLayout(row)
 
@@ -181,6 +216,17 @@ class StartPage(QWidget):
         lay.addWidget(area)
         self.refresh()
 
+    def show_update(self, version: str, url: str) -> None:
+        self.update_url = url
+        self.update_text.setText(f"<b>KDE Customizer {html.escape(version)} is out</b> (you have "
+                                 f"{html.escape(__version__)}). Download it and replace this one; your themes and "
+                                 "settings stay.")
+        self.update_bar.show()
+
+    def _no_updates(self) -> None:
+        QSettings("kdecustomizer", "kdec-gui").setValue("updates/check", False)
+        self.update_bar.hide()
+
     def _heading(self, text: str, v: QVBoxLayout) -> QLabel:
         lbl = QLabel(text)
         f = QFont(lbl.font())
@@ -202,6 +248,14 @@ class StartPage(QWidget):
             self.recovery_text.setText(f"<b>Unsaved changes to “{html.escape(name)}”</b>{html.escape(where)} were "
                                        f"kept from {stamp}.")
         self.recovery.setVisible(bool(kept))
+        try:
+            changed = len(installed.outdated())
+        except Exception:       # unreadable state: just no hint
+            changed = 0
+        self.manage_btn.setText("Installed themes…" + (f" ({changed} changed)" if changed else ""))
+        self.manage_btn.setToolTip("See and remove the themes kde-customizer has installed" + (
+            f"\n{changed} of them changed in their theme file since they were installed: Update applies them "
+            "again" if changed else ""))
         self._fill(self.recent, library.recent(), lambda p, t: t.name, lambda p, t: str(p))
         has = self.recent.count() > 0
         self.recent_label.setVisible(has)
@@ -212,6 +266,7 @@ class StartPage(QWidget):
 
     def _fill(self, grid: Cards, paths: list[Path], label, tip) -> None:
         # forget this grid's pending thumbnails first: clear() deletes the C++ items under the Python wrappers
+        """Cards for these spec files; thumbnails are rendered later, one per event-loop turn."""
         self._todo = [it for it in self._todo if it.listWidget() is not grid]
         grid.clear()
         for p in paths:

@@ -103,6 +103,8 @@ _CHEVRON = {"down": "M4.5,6.5 L8,10 L11.5,6.5", "up": "M4.5,9.5 L8,6 L11.5,9.5",
 
 
 def svg(theme: Theme) -> str:
+    """The Kvantum SVG: per widget element an interior and nine frame pieces for each state, plus arrows, check boxes,
+    radios and slider handles."""
     s = _scheme(theme)
     dark = theme.dark
     win, btn, view = s["Colors:Window"], s["Colors:Button"], s["Colors:View"]
@@ -234,6 +236,8 @@ def svg(theme: Theme) -> str:
 
 
 def kvconfig(theme: Theme) -> str:
+    """The .kvconfig: one section per widget (which SVG elements, frame thickness, text colors) plus the general
+    hints."""
     s = _scheme(theme)
     win, btn, view, sel, tip = (s[k] for k in ("Colors:Window", "Colors:Button", "Colors:View",
                                                "Colors:Selection", "Colors:Tooltip"))

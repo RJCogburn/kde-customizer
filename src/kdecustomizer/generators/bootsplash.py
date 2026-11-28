@@ -71,6 +71,8 @@ def _f(c: RGB) -> str:
 
 
 def script(theme: Theme) -> str:
+    """The Plymouth .script: background, logo text, progress bar, and the password / question / message callbacks (disk
+    unlock must keep working)."""
     p = theme.palette.resolved()
     bg, fg, acc = parse(p.background), parse(p.foreground), parse(p.accent)
     top, bottom = (bg, mix(bg, acc, 0.22)) if theme.boot_splash.background == "gradient" else (bg, bg)

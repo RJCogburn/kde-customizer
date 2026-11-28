@@ -66,6 +66,8 @@ def _q(s: str) -> str:
 
 
 def script(theme: Theme) -> str:
+    """restore-point.sh: saves every key install.sh changes (and files, wallpaper, panels with --layout) into a
+    timestamped restore.sh that puts them back."""
     q = shlex.quote
     s = [
         "#!/usr/bin/env bash",
@@ -117,8 +119,10 @@ def script(theme: Theme) -> str:
         "  # the user's own file only (no XDG_CONFIG_DIRS cascade): a key set nowhere but kdedefaults stays unset",
         '  v="$(XDG_CONFIG_DIRS=/nonexistent kreadconfig6 --file "$f" "${a[@]}" --key "$k" --default __KDEC_UNSET__ '
         '2>/dev/null)" || v=__KDEC_UNSET__',
-        '  local line="kwriteconfig6 --notify --file $(printf %q "$f") $(printf -- \'--group %q \' "$@")--key $(printf %q "$k")"',
-        '  if [[ "$v" == __KDEC_UNSET__ ]]; then echo "$line --delete" >> "$R"; else echo "$line $(printf %q "$v")" >> "$R"; fi',
+        '  local line="kwriteconfig6 --notify --file $(printf %q "$f") $(printf -- \'--group %q \' "$@")'
+        '--key $(printf %q "$k")"',
+        '  if [[ "$v" == __KDEC_UNSET__ ]]; then echo "$line --delete" >> "$R"; '
+        'else echo "$line $(printf %q "$v")" >> "$R"; fi',
         "}",
     ]
     for f, groups, k in keys(theme):
@@ -157,7 +161,8 @@ def script(theme: Theme) -> str:
         "  WP=\"$(qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "
         + q(_WALLPAPER_JS) + ' 2>/dev/null || true)"',
         '  WP="${WP#file://}"',
-        '  [[ -n "$WP" && -e "$WP" ]] && echo "plasma-apply-wallpaperimage $(printf %q "$WP") >/dev/null || true" >> "$R"',
+        '  [[ -n "$WP" && -e "$WP" ]] && '
+        'echo "plasma-apply-wallpaperimage $(printf %q "$WP") >/dev/null || true" >> "$R"',
         "fi",
         "",
         "cat >> \"$R\" <<'KDEC_EOF'",

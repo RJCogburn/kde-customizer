@@ -73,6 +73,7 @@ def _kw(file: str, groups: list[str], key: str, value: str) -> str:
 
 
 def greeter_script(theme: Theme, font_keys, qfont) -> str:
+    """greeter.sh, run as the greeter's user: copies the staged assets into its home and writes its KDE config keys."""
     q = shlex.quote
     s = [
         "#!/usr/bin/env bash",
@@ -174,7 +175,8 @@ def root_script(theme: Theme) -> str:
         "  plasmalogin|sddm) ;;",
         '  *) DM=""; for u in plasmalogin sddm; do getent passwd "$u" >/dev/null && { DM="$u"; break; }; done ;;',
         "esac",
-        'if [[ -z "$DM" ]]; then echo "No Plasma Login Manager or SDDM found: login screen left as is." >&2; exit 1; fi',
+        'if [[ -z "$DM" ]]; then echo "No Plasma Login Manager or SDDM found: login screen left as is." >&2; '
+        'exit 1; fi',
         'GUSER="$DM"',
         'GHOME="${KDEC_LOGIN_HOME:-$(getent passwd "$GUSER" | cut -d: -f6)}"',
         'if [[ -z "$GHOME" || ! -d "$GHOME" ]]; then echo "no home for the $GUSER user" >&2; exit 1; fi',

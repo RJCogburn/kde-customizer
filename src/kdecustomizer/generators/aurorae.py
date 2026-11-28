@@ -84,6 +84,8 @@ def _clip(rect, region):
 
 
 def _frame(svg: _Svg, g: _Geo, prefix: str, oy: float, fill: RGB, edge: RGB, edge_a: float) -> None:
+    """The FrameSvg pieces of one window frame (active or inactive): soft shadow, title bar and borders with the corner
+    radius."""
     S, W, H = g.S, g.W, g.H
     x0, x1, y0, y1 = S, W - S, oy + S, oy + H - S
     r, rb = g.r, g.rb
@@ -175,11 +177,13 @@ def _glyph(kind: str, cx: float, cy: float, s: float, color: RGB, alpha: float =
         k = -1 if kind == "above" else 1
         return P(f"M{f(cx-g)},{f(cy-k*g*0.5)} L{f(cx)},{f(cy+k*g*0.5)} L{f(cx+g)},{f(cy-k*g*0.5)}")
     if kind == "shade":
-        return P(f"M{f(cx-g)},{f(cy-g*0.7)} H{f(cx+g)} M{f(cx-g)},{f(cy+g*0.7)} L{f(cx)},{f(cy-g*0.1)} L{f(cx+g)},{f(cy+g*0.7)}")
+        return P(f"M{f(cx-g)},{f(cy-g*0.7)} H{f(cx+g)} "
+                 f"M{f(cx-g)},{f(cy+g*0.7)} L{f(cx)},{f(cy-g*0.1)} L{f(cx+g)},{f(cy+g*0.7)}")
     if kind == "help":
         q = g * 0.65
         return (P(f"M{f(cx-q)},{f(cy-g*0.45)} A{f(q)},{f(q)} 0 1 1 {f(cx)},{f(cy+g*0.2)} V{f(cy+g*0.4)}")
-                + f'<circle cx="{f(cx)}" cy="{f(cy+g*0.95)}" r="{f(w*0.6)}" fill="{to_hex(color)}" fill-opacity="{f(alpha)}"/>')
+                + f'<circle cx="{f(cx)}" cy="{f(cy+g*0.95)}" r="{f(w*0.6)}" fill="{to_hex(color)}" '
+                  f'fill-opacity="{f(alpha)}"/>')
     raise ValueError(kind)
 
 
@@ -188,6 +192,8 @@ def _on(c: RGB) -> RGB:
 
 
 def button_svg(theme: Theme, kind: str) -> str:
+    """One title-bar button (close, maximize, minimize…) as SVG with its active/hover/pressed/inactive/deactivated
+    states."""
     g = _Geo(theme)
     p = theme.palette.resolved()
     wm = _wm(theme)
@@ -233,6 +239,7 @@ def button_svg(theme: Theme, kind: str) -> str:
 # --- package -------------------------------------------------------------------
 
 def rc(theme: Theme) -> str:
+    """The <name>rc file: title colors, alignment, button sizes and the frame's border/padding measures."""
     d = theme.decoration
     g = _Geo(theme)
     wm = _wm(theme)
@@ -263,6 +270,7 @@ def rc(theme: Theme) -> str:
 
 
 def metadata(theme: Theme) -> str:
+    """metadata.json of the Aurorae package."""
     name = theme.decoration_name
     return json.dumps({
         "KPackageStructure": "aurorae",

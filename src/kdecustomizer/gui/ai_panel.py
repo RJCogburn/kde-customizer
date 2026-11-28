@@ -8,11 +8,12 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QSettings, Qt, QThread, Signal
 from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QToolButton, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel,
+    QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QToolButton, QVBoxLayout,
+    QWidget,
 )
 
-from .. import ai, spec
+from .. import ai
 
 
 def _settings() -> QSettings:
@@ -29,6 +30,8 @@ def current_provider() -> tuple[ai.Provider, str | None]:
 
 
 class SettingsDialog(QDialog):
+    """AI provider, model, API URL and key (kept in QSettings, per provider)."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("AI settings")
@@ -59,6 +62,7 @@ class SettingsDialog(QDialog):
         return self.provider.currentData()
 
     def _load(self, *_):
+        """Show the saved settings of the selected provider; fields it doesn't use are disabled."""
         k = self._key()
         p = ai.PRESETS[k]
         self.model.setText(self.s.value(f"ai/{k}/model", p.model))
@@ -88,6 +92,8 @@ class SettingsDialog(QDialog):
 
 
 class _Worker(QObject):
+    """Runs ai.generate() on a worker thread."""
+
     progress = Signal(str)
     done = Signal(object, str, list)
     failed = Signal(str)
@@ -97,6 +103,7 @@ class _Worker(QObject):
         self.args = (request, theme, prov, key, use_wp, refs)
 
     def run(self):
+        """Emit done(theme, note, problems), or failed(message) for any error."""
         request, theme, prov, key, use_wp, refs = self.args
         try:
             result = ai.generate(request, theme, prov, api_key=key, use_wallpaper=use_wp, references=refs,
@@ -111,6 +118,7 @@ class _Worker(QObject):
 
 class AIPanel(QWidget):
     """Emits `theme_ready(theme)`; the main window applies it (and keeps undo history)."""
+
     theme_ready = Signal(object)
 
     def __init__(self, get_theme):
@@ -194,6 +202,7 @@ class AIPanel(QWidget):
 
     # --- reference attachments ------------------------------------------------------
     def add_refs(self, paths: list[str]):
+        """Attach files or links for the AI to design from; unsupported file types are reported, not added."""
         bad = []
         for path in paths:
             ext = Path(path).suffix.lower()
@@ -209,6 +218,7 @@ class AIPanel(QWidget):
             self._say("Can't use: " + ", ".join(bad) + " — attach images, PDFs, .docx or text files.", True)
 
     def _show_refs(self):
+        """List the attachments with a type icon."""
         self.refs_list.clear()
         for path in self.refs:
             p = Path(path.split("?")[0])
@@ -271,6 +281,7 @@ class AIPanel(QWidget):
                    + ", then use “Paste AI reply…” with its answer.")
 
     def paste_reply(self):
+        """Paste a chat AI's answer (the TOML block is found in it) and use it as the theme."""
         dlg = QDialog(self)
         dlg.setWindowTitle("Paste AI reply")
         lay = QVBoxLayout(dlg)
@@ -294,6 +305,7 @@ class AIPanel(QWidget):
         self._say("Applied pasted theme." + ("\n⚠ " + "\n⚠ ".join(problems) if problems else ""), bool(problems))
 
     def generate(self):
+        """Send the request to the chosen provider on a worker thread."""
         if self.thread:
             return
         prov, key = current_provider()

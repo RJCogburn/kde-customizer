@@ -1,6 +1,5 @@
 """Background removal for rendered icons: the rembg chain (in-process / external Python) and the built-in cutter."""
 import io
-import os
 import stat
 
 import pytest

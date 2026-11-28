@@ -1,5 +1,4 @@
 """GUI smoke tests, offscreen: the editor loads a spec, round-trips it, and the preview paints every popup."""
-import os
 
 import pytest
 
@@ -31,7 +30,7 @@ def test_form_round_trips_the_spec(window):
 
 
 def test_tweaks_table(window):
-    from kdecustomizer.gui.app import TWEAK_PRESETS
+    from kdecustomizer.gui.fields import TWEAK_PRESETS
     window._add_tweaks(next(e for _, label, e in TWEAK_PRESETS if label == "Stronger blur"))
     window._add_tweaks([("kdeglobals", "KDE", "AnimationDurationFactor", 0.5)])
     t = window.from_form()

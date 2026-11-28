@@ -289,6 +289,7 @@ def existing(sig_dir: str | Path | None) -> dict[str, Path]:
 
 
 def clear(sig_dir: str | Path, slots: list[str] | None = None) -> None:
+    """Delete these slots' files (svg, png, raw), or the whole folder."""
     d = Path(sig_dir)
     if slots is None:
         shutil.rmtree(d, ignore_errors=True)

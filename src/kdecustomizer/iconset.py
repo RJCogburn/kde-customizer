@@ -4,6 +4,10 @@ Layer 1 (always, deterministic): copy the base theme's folder/place icons, shift
 fills to the palette accent, and inherit the base theme for everything else.
 Layer 2 (optional): signature icons from `iconset.signature_dir` — `svg/<slot>.svg` (AI-drawn vectors)
 and/or `png/<slot>.png` (local image AI masters, resized here). They replace the recolored versions.
+Layer 3 (optional): every app's own icon restyled (`app_icons = "recolor"`, appicons.py).
+On top of all: the user's own icons from `iconset.custom_dir` (<icon-name>.svg|png, see iconnames.py). Each name
+there replaces every other layer's file for it; they go in `custom/scalable/<Context>` (PNGs wrapped in SVG, so one
+file serves every size), listed first in index.theme.
 
 Pure functions + file I/O; no Qt, no network.
 """
@@ -70,16 +74,30 @@ def _read_index(d: Path) -> configparser.ConfigParser:
     return cp
 
 
+_entries_cache: dict[str, tuple[int, list[Path]]] = {}
+
+
 def _canonical_entries(directory: Path) -> list[Path]:
     """Icon names to recolor in one dir: every folder/place icon except Papirus' color variants
     (folder-red.svg, folder-blue-documents.svg… — apps never ask for those; the plain names link to them)
-    and symbolic icons (monochrome, already follow the color scheme)."""
+    and symbolic icons (monochrome, already follow the color scheme).
+    Cached per dir until its mtime changes: the GUI rebuilds the preview set on every accent change."""
+    key = str(directory)
     try:
-        return [Path(e.path) for e in os.scandir(directory)
-                if e.name.endswith(".svg") and _RECOLOR_NAMES.match(e.name)
-                and not _VARIANT.match(e.name) and "-symbolic" not in e.name]
-    except FileNotFoundError:
+        mtime = os.stat(key).st_mtime_ns
+    except OSError:
         return []
+    hit = _entries_cache.get(key)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    try:
+        found = [Path(e.path) for e in os.scandir(key)
+                 if e.name.endswith(".svg") and _RECOLOR_NAMES.match(e.name)
+                 and not _VARIANT.match(e.name) and "-symbolic" not in e.name]
+    except OSError:
+        return []
+    _entries_cache[key] = (mtime, found)
+    return found
 
 
 def _hex_rgb(h: str) -> tuple[int, int, int]:
@@ -103,11 +121,13 @@ def _dominant(svgs: list[str]) -> tuple[float, float, float] | None:
 
 
 def _recolorer(dominant: tuple[float, float, float], accent: str):
+    """A text -> text function that moves the base theme's folder color to the accent (other hues are kept)."""
     h0, l0, s0 = dominant
     r, g, b = (v / 255 for v in color.parse(accent))
     ha, la, sa = colorsys.rgb_to_hls(r, g, b)
 
     def sub(m: re.Match) -> str:
+        """Shift one hex color: near the folder hue -> accent hue, lightness and saturation moved along; others kept."""
         r, g, b = (v / 255 for v in _hex_rgb(m.group(1)))
         h, l, s = colorsys.rgb_to_hls(r, g, b)
         dh = min(abs(h - h0), 1 - abs(h - h0))
@@ -161,6 +181,21 @@ def build(theme: Theme, out_root: Path, only: set[str] | None = None) -> Path:
     scaled = [d for d in icon_section.get("ScaledDirectories", "").split(",") if d]
     sig = Path(ics.signature_dir) if ics.signature_dir else None
     replaced = _slot_names() if sig and sig.is_dir() and any(sig.glob("*/*.*")) else set()
+    from . import iconnames
+    custom = iconnames.custom_icons(ics.custom_dir)
+    used_dirs: dict[str, dict[str, str]] = {}
+    for name, f in custom.items():              # the user's own icons: written first, listed first
+        ctx = iconnames.context(name)
+        d = f"custom/scalable/{ctx.lower()}"
+        (out / d).mkdir(parents=True, exist_ok=True)
+        data = f.read_bytes()
+        try:
+            text = iconnames.png_as_svg(data) if f.suffix.lower() == ".png" else data.decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            continue                            # not a real PNG / SVG: the other layers' icon stays
+        (out / d / f"{name}.svg").write_text(text, encoding="utf-8")
+        used_dirs[d] = {"Size": "64", "MinSize": "8", "MaxSize": "512", "Type": "Scalable", "Context": ctx}
+    taken = set(custom)
 
     # ---- layer 1: recolor ----
     files: list[tuple[str, Path]] = []
@@ -168,7 +203,7 @@ def build(theme: Theme, out_root: Path, only: set[str] | None = None) -> Path:
         if not base.has_section(d) or base[d].get("Context") not in ("Places", "MimeTypes") or "symbolic" in d:
             continue
         for p in _canonical_entries(base_dir / d):
-            if p.stem not in replaced and (only is None or p.stem in only):
+            if p.stem not in replaced and p.stem not in taken and (only is None or p.stem in only):
                 files.append((d, p))
     texts = {}
     for d, p in files:
@@ -178,7 +213,6 @@ def build(theme: Theme, out_root: Path, only: set[str] | None = None) -> Path:
             continue
     dom = _dominant(list(texts.values()))
     recolor = _recolorer(dom, theme.palette.accent) if dom else (lambda t: t)
-    used_dirs: dict[str, dict[str, str]] = {}
     for (d, name), text in texts.items():
         (out / d).mkdir(parents=True, exist_ok=True)
         (out / d / name).write_text(recolor(text), encoding="utf-8")
@@ -193,7 +227,8 @@ def build(theme: Theme, out_root: Path, only: set[str] | None = None) -> Path:
                 d = f"signature/scalable/{ctx}"
                 (out / d).mkdir(parents=True, exist_ok=True)
                 for n in [slot, *aliases]:
-                    shutil.copyfile(svg, out / d / f"{n}.svg")
+                    if n not in taken:
+                        shutil.copyfile(svg, out / d / f"{n}.svg")
                 used_dirs[d] = {"Size": "64", "MinSize": "8", "MaxSize": "512", "Type": "Scalable",
                                 "Context": _CONTEXT[ctx]}
             elif png.is_file():
@@ -205,13 +240,14 @@ def build(theme: Theme, out_root: Path, only: set[str] | None = None) -> Path:
                         (out / d).mkdir(parents=True, exist_ok=True)
                         small = im.resize((size, size), Image.LANCZOS)
                         for n in [slot, *aliases]:
-                            small.save(out / d / f"{n}.png")
+                            if n not in taken:
+                                small.save(out / d / f"{n}.png")
                         used_dirs[d] = {"Size": str(size), "Type": "Fixed", "Context": _CONTEXT[ctx]}
 
     # ---- layer 3: every app's own icon in shades of the accent ----
     if ics.app_icons == "recolor":
         from . import appicons
-        app_dirs, _count = appicons.build_into(theme, out, skip=replaced, only=only)
+        app_dirs, _count = appicons.build_into(theme, out, skip=replaced | taken, only=only)
         used_dirs.update(app_dirs)
 
     # ---- index.theme ----

@@ -3,17 +3,18 @@
 point this install just took (like the display settings' confirmation)."""
 from __future__ import annotations
 
+import html
 import shutil
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, QTimer, Signal
+from PySide6.QtCore import QProcess, Qt, QTimer, Signal
 from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPlainTextEdit, QProgressBar,
     QPushButton, QVBoxLayout,
 )
 
-from .. import restorepoints
+from .. import failures, restorepoints
 
 KEEP_SECONDS = 20
 
@@ -36,6 +37,8 @@ def step_label(text: str) -> str:
 
 
 class ApplyDialog(QDialog):
+    """Runs install.sh with a checklist of its steps, then the keep-or-undo countdown."""
+
     output = Signal(str)            # every line of output, for the main window's log
 
     def __init__(self, parent, theme_name: str, script: Path, args: list[str], needs_password: bool):
@@ -61,6 +64,14 @@ class ApplyDialog(QDialog):
         self.note.setText("The login screen and boot splash are system-wide: you'll be asked for your admin "
                           "password if they changed since the last time.")
         v.addWidget(self.note)
+        self.why = QLabel()                 # after a failure: what probably went wrong, in plain words
+        self.why.setWordWrap(True)
+        self.why.setTextFormat(Qt.RichText)
+        self.why.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.why.setStyleSheet("QLabel { background: rgba(218, 68, 83, 0.12); border: 1px solid "
+                               "rgba(218, 68, 83, 0.5); border-radius: 5px; padding: 6px 8px; }")
+        self.why.hide()
+        v.addWidget(self.why)
         self.steps = QListWidget()
         self.steps.setMinimumHeight(220)
         v.addWidget(self.steps, 1)
@@ -110,6 +121,7 @@ class ApplyDialog(QDialog):
             self._line(line)
 
     def _line(self, line: str) -> None:
+        """One output line: '==> step' starts a checklist row; known status lines annotate the current row."""
         self.log.appendPlainText(line)
         self.output.emit(line)
         if line.startswith("==> "):
@@ -137,6 +149,7 @@ class ApplyDialog(QDialog):
 
     # --- phases -------------------------------------------------------------------
     def _finished(self, code: int, _status=None) -> None:
+        """install.sh (or the undo) ended: show the result, explain a failure, or start the keep-or-undo countdown."""
         if self._buf:
             self._line(self._buf)
             self._buf = ""
@@ -153,8 +166,8 @@ class ApplyDialog(QDialog):
             return
         if code != 0:
             self.details.setChecked(True)
-            self._end(f"Something went wrong (exit {code}). See Details; Undo Apply can put the desktop back.",
-                      False)
+            self._end(f"Something went wrong (exit {code}). Undo Apply can put the desktop back.", False)
+            self.show_reasons(self.log.toPlainText(), code)
             self.result_text = f"install.sh failed (exit {code})"
             return
         self.result_text = "Applied."
@@ -170,6 +183,18 @@ class ApplyDialog(QDialog):
         self.keep.setFocus()
         self._tick(start=True)
         self.timer.start()
+
+    def show_reasons(self, output: str, code: int) -> None:
+        """Plain-language causes of a failure (failures.explain), else the last error line."""
+        reasons = failures.explain(output, code)
+        if reasons:
+            items = "".join(f"<li>{html.escape(r)}</li>" for r in reasons)
+            self.why.setText(f"<b>What probably went wrong</b><ul style='margin:2px 0 0 -20px'>{items}</ul>")
+        else:
+            last = failures.last_error(output)
+            self.why.setText("<b>The last error was:</b><br><code>" + html.escape(last) + "</code>" if last else
+                             "The output below shows where it stopped.")
+        self.why.show()
 
     def _tick(self, start: bool = False) -> None:
         if not start:
@@ -187,6 +212,7 @@ class ApplyDialog(QDialog):
         self.accept()
 
     def _undo(self) -> None:
+        """Run the restore point this install took (Undo button, Esc, or the countdown ran out)."""
         self.timer.stop()
         if self._phase != "keep" or not self._point:
             return

@@ -10,6 +10,8 @@ WIDTH = 84
 
 
 class Sections(QWidget):
+    """Icon sidebar + stacked pages with QTabWidget's API (addTab, tabText, setCurrentIndex, currentChanged)."""
+
     currentChanged = Signal(int)
 
     def __init__(self):
@@ -37,6 +39,7 @@ class Sections(QWidget):
         lay.addWidget(self.stack, 1)
 
     def addTab(self, widget: QWidget, text: str, icon: str = "") -> int:
+        """Add a page with a sidebar entry; returns its index."""
         it = QListWidgetItem(QIcon.fromTheme(icon), text)
         it.setTextAlignment(Qt.AlignHCenter | Qt.AlignTop)
         it.setSizeHint(QSize(WIDTH - 8, 58))

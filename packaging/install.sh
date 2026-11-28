@@ -37,6 +37,7 @@ echo "==> Installing to $APPDIR (commands in $PREFIX/bin)"
 $SUDO mkdir -p "$APPDIR" "$PREFIX/bin" "$(dirname "$DESKTOP")" "$(dirname "$ICON")"
 $SUDO rm -rf "$APPDIR/python"
 $SUDO cp -a "$HERE/python" "$HERE/bin" "$HERE/examples" "$APPDIR/"
+if [ -f "$HERE/update-check" ]; then $SUDO cp "$HERE/update-check" "$APPDIR/"; fi     # new-release notice on
 for c in kdec kdec-gui kde-customizer; do
     $SUDO ln -sf "$APPDIR/bin/$c" "$PREFIX/bin/$c"
 done

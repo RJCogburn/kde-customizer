@@ -41,7 +41,9 @@ install -m644 "$ROOT/LICENSE" "$ROOT/README.md" "$STAGE/"
 install -m755 "$ROOT/packaging/install.sh" "$STAGE/"
 
 echo "==> $NAME.tar.gz"
+touch "$STAGE/update-check"         # the tarball doesn't update itself: the app shows when a new release is out
 tar -C "$ROOT/build" --transform "s,^pkgroot,$NAME," -czf "$DIST/$NAME.tar.gz" pkgroot
+rm -f "$STAGE/update-check"         # .deb / .rpm: the package manager updates them
 
 if command -v nfpm >/dev/null 2>&1; then
     for fmt in deb rpm; do

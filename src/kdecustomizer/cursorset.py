@@ -79,9 +79,11 @@ _KNOWN = {
 
 
 def _recolorer(c: dict[str, str]):
+    """A re.sub callback that maps each hex color in a cursor SVG to the theme's cursor colors."""
     body, outline = color.parse(c["body"]), color.parse(c["outline"])
 
     def sub(m: re.Match) -> str:
+        """Breeze's known colors -> their roles; grays -> between body and outline by lightness; other hues kept."""
         h = m.group(1).lower()
         if len(h) == 3:
             h = "".join(ch * 2 for ch in h)
@@ -135,12 +137,20 @@ def _renderer():
     except ImportError:
         return None
 
+    parsed: dict[bytes, QSvgRenderer] = {}      # each frame is drawn at every XCURSOR_SIZES size: parse it once
+
     def render(svg: bytes, w: int, h: int) -> bytes:
+        """Draw one SVG at w x h; returns raw ARGB32 bytes (what an Xcursor image holds)."""
+        r = parsed.get(svg)
+        if r is None:
+            if len(parsed) > 64:
+                parsed.clear()
+            r = parsed[svg] = QSvgRenderer(QByteArray(svg))
         img = QImage(w, h, QImage.Format_ARGB32_Premultiplied)
         img.fill(Qt.transparent)
         p = QPainter(img)
         p.setRenderHint(QPainter.Antialiasing)
-        QSvgRenderer(QByteArray(svg)).render(p, QRectF(0, 0, w, h))
+        r.render(p, QRectF(0, 0, w, h))
         p.end()
         # ARGB32 in memory is the 32-bit pixel in native (little-endian) order = what Xcursor stores
         return bytes(img.constBits())[: w * h * 4]

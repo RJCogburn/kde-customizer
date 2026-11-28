@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import re
 import subprocess
 import sys
 from dataclasses import replace
@@ -13,6 +12,7 @@ from . import spec
 
 
 def cmd_new(a) -> int:
+    """kdec new: a starter spec (a bare name gets its own folder in the themes folder)."""
     if a.path.endswith(".toml") or "/" in a.path:
         path = Path(a.path)
         name = a.name or path.stem.replace("-", " ").title()
@@ -30,6 +30,7 @@ def cmd_new(a) -> int:
 
 
 def cmd_snapshot(a) -> int:
+    """kdec snapshot: the running desktop as a spec."""
     from . import snapshot
     path = Path(a.path)
     if path.exists() and not a.force:
@@ -50,18 +51,44 @@ def cmd_build(a) -> int:
 
 
 def cmd_export(a) -> int:
+    """kdec export: a shareable .tar.gz, or with --store one file per part for the KDE Store."""
+    if a.store:
+        from . import store
+        dest = Path(a.dest or f"{spec.load(a.spec).slug}-kde-store")
+        files = store.export(spec.load(a.spec), dest, a.out)
+        for path, category, _what in files.values():
+            print(f"{path}  ->  {category}")
+        print(f"read {dest / 'UPLOAD.md'} for where each file goes")
+        return 0
     dest = builder.export(spec.load(a.spec), a.dest, a.out)
-    print(f"exported {dest}\nshare it; recipient runs: tar xzf {dest.name} && ./{dest.name.removesuffix('.tar.gz')}/install.sh")
+    folder = dest.name.removesuffix(".tar.gz")
+    print(f"exported {dest}\nshare it; recipient runs: tar xzf {dest.name} && ./{folder}/install.sh")
     return 0
 
 
 def cmd_apply(a) -> int:
+    """kdec apply: build, then run install.sh (or print it with --dry-run); failures get plain-language hints."""
     out = builder.build(spec.load(a.spec), a.out)
     script = out / "install.sh"
     if a.dry_run:
         print(script.read_text())
         return 0
-    return subprocess.call([str(script)] + (["--layout"] if a.layout else []) + builder.skip_args(a.skip))
+    code, output = run_install([str(script)] + (["--layout"] if a.layout else []) + builder.skip_args(a.skip))
+    if code:
+        from . import failures
+        for r in failures.explain(output, code):
+            print(f"hint: {r}", file=sys.stderr)
+    return code
+
+
+def run_install(args: list[str]) -> tuple[int, str]:
+    """Run install.sh, showing its output as it comes; returns (exit code, output) so failures can be explained."""
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    seen = []
+    for line in proc.stdout:
+        print(line, end="", flush=True)
+        seen.append(line)
+    return proc.wait(), "".join(seen)
 
 
 def cmd_wallpaper(a) -> int:
@@ -187,6 +214,7 @@ def cmd_ai_guide(a) -> int:
 
 
 def cmd_ai(a) -> int:
+    """kdec ai: design or refine a theme with an AI (or print a prompt for any chat AI) and save it."""
     from . import ai
     current = spec.load(a.base) if a.base else None
     if a.prompt_only:
@@ -196,7 +224,8 @@ def cmd_ai(a) -> int:
     prov.model = a.model or prov.model
     prov.base_url = a.base_url or prov.base_url
     try:
-        theme, note, problems = ai.generate(a.request, current, prov, use_wallpaper=not a.no_wallpaper, references=a.ref,
+        theme, note, problems = ai.generate(a.request, current, prov, use_wallpaper=not a.no_wallpaper,
+                                            references=a.ref,
                                             log=lambda s: print(f"… {s}", file=sys.stderr))
     except ai.AIError as e:
         print(f"error: {e}", file=sys.stderr)
@@ -214,10 +243,54 @@ def cmd_ai(a) -> int:
     return 0
 
 
+def cmd_icon_names(a) -> int:
+    """What each icon name is for (or every name a theme has), filtered by a search word."""
+    from . import iconnames
+    q = (a.search or "").lower()
+    if a.all:
+        rows = [(n, iconnames.PURPOSE.get(n, e.context)) for n, e in sorted(iconnames.theme_index(a.base).items())]
+    elif a.apps:
+        rows = list(iconnames.installed_apps().items())
+    else:
+        rows = [(n, f"{p} [{c}]") for n, c, p in iconnames.CATALOG]
+    rows = [(n, p) for n, p in rows if q in n.lower() or q in p.lower()]
+    width = max((len(n) for n, _ in rows), default=0)
+    for n, p in rows:
+        print(f"{n:<{width}}  {p}")
+    if not rows:
+        print("no icon names match", file=sys.stderr)
+        return 1
+    if not (a.all or a.apps):
+        print("\nSave your icon as <name>.svg or <name>.png in a folder, then: kdec icons THEME.toml --custom FOLDER",
+              file=sys.stderr)
+    return 0
+
+
 def cmd_icons(a) -> int:
     """Make signature icons for a theme (and switch on its generated icon set)."""
     from . import ai, signature
     theme = spec.load(a.spec)
+    if a.custom is not None:
+        from . import iconnames
+        saved = theme
+        if a.custom:
+            folder = Path(a.custom).expanduser().resolve()
+            if not folder.is_dir():
+                print(f"error: {folder} is not a folder", file=sys.stderr)
+                return 1
+            mine = iconnames.custom_icons(folder)
+            saved.iconset.generate = True
+            saved.iconset.custom_dir = str(folder)
+            print(f"{len(mine)} icon(s) in {folder}: {', '.join(sorted(mine)) or '(none yet)'}")
+            if bad := iconnames.unknown_names(mine, saved.iconset.base):
+                print(f"warning: nothing asks for {', '.join(bad)} — check the names with `kdec icon-names`",
+                      file=sys.stderr)
+        else:
+            saved.iconset.custom_dir = ""
+            print("own icons folder removed from the theme (its files are kept)")
+        spec.save(saved, a.spec)
+        print(f"updated {a.spec} — `kdec apply {a.spec}` installs it")
+        return 0
     if a.list_models:
         try:
             b = signature.imagegen.detect(a.image_url, a.performance, "auto")
@@ -287,6 +360,7 @@ def cmd_icons(a) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Argument parsing for every subcommand; each one's work is in its cmd_* function."""
     p = argparse.ArgumentParser(prog="kdec", description="Build and apply KDE Plasma themes")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -310,7 +384,9 @@ def main(argv: list[str] | None = None) -> int:
         s.add_argument("spec")
         s.add_argument("-o", "--out", default="build")
         if name == "export":
-            s.add_argument("dest", nargs="?", help="output file (default: ./<Name>.tar.gz)")
+            s.add_argument("dest", nargs="?", help="output file (default: ./<Name>.tar.gz; with --store a folder)")
+            s.add_argument("--store", action="store_true",
+                           help="one file per part for uploading to the KDE Store, plus UPLOAD.md")
         elif name != "build":
             s.add_argument("--dry-run", action="store_true", help="print the script instead of running it")
         if name == "apply":
@@ -399,7 +475,17 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--import", dest="import_dir", metavar="DIR", help="import <icon-name>.png/.svg files from DIR")
     s.add_argument("--recut", action="store_true",
                    help="cut the backgrounds out of the kept raw renders again (no image AI needed)")
+    s.add_argument("--custom", metavar="DIR", help="use your own icons from DIR (<icon-name>.svg/.png, see "
+                   "`kdec icon-names`); they replace every other version. --custom '' stops using the folder")
     s.set_defaults(fn=cmd_icons)
+
+    s = sub.add_parser("icon-names", help="list icon names and what each is for (to name your own icons)")
+    s.add_argument("search", nargs="?", help="only names or descriptions containing this, e.g. trash")
+    g = s.add_mutually_exclusive_group()
+    g.add_argument("--all", action="store_true", help="every name the --base icon theme has")
+    g.add_argument("--apps", action="store_true", help="every app on this computer, by its icon name")
+    s.add_argument("--base", default="breeze", help="icon theme for --all (default: breeze)")
+    s.set_defaults(fn=cmd_icon_names)
 
     a = p.parse_args(argv)
     try:

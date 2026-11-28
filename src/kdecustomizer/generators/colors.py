@@ -15,6 +15,7 @@ def scheme(theme: Theme) -> dict[str, dict[str, RGB | str]]:
     on_accent = (255, 255, 255) if luminance(acc) < 0.4 else (0, 0, 0)
 
     def role(back, alt, fore, inactive_t=0.45):
+        """The keys of one color group (Window, View, Button…) from its background, alternate and text colors."""
         return {
             "BackgroundNormal": back,
             "BackgroundAlternate": alt,
@@ -57,6 +58,7 @@ def scheme(theme: Theme) -> dict[str, dict[str, RGB | str]]:
 
 
 def generate(theme: Theme) -> str:
+    """The .colors file: color effects, every group from scheme(), and the General/KDE keys."""
     sections = scheme(theme)
     bg = theme.palette.background
 

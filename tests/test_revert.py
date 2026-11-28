@@ -93,7 +93,7 @@ def test_round_trip(midnight, tmp_path, env, capsys):
     assert (conf / "kdedefaults/kdeglobals").read_text() == "[KDE]\nwidgetStyle=Breeze\n"
     calls = log.read_text()
     assert "plasma-apply-colorscheme BreezeDark" in calls and "qdbus6 org.kde.KWin /KWin reconfigure" in calls
-    assert restorepoints.points() == []                                          # used up: next revert goes further back
+    assert restorepoints.points() == []                     # used up: next revert goes further back
     assert cli.main(["revert"]) == 1
 
 

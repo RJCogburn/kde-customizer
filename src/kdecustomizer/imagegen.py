@@ -49,6 +49,8 @@ def _ok(url: str) -> bytes | None:
 # --- backends ---------------------------------------------------------------------------
 
 class Backend:
+    """A local image AI. Subclasses implement generate() (and models() where the AI can list checkpoints)."""
+
     name = "?"
     model = ""            # checkpoint to render with ("" = the image AI's own default; "auto" = pick_model())
     size = (1024, 1024)   # render size (SDXL is trained near 1 megapixel: wallpapers use 1344x768 and upscale)
@@ -112,6 +114,7 @@ def pick_model(names: list[str]) -> str | None:
 
 class A1111(Backend):
     """AUTOMATIC1111 / Forge / reForge / SD.Next (`--api`)."""
+
     name = "A1111/Forge"
 
     def models(self) -> list[str]:
@@ -121,7 +124,9 @@ class A1111(Backend):
             return []
 
     def generate(self, prompt, negative, seed):
-        body = {"prompt": prompt, "negative_prompt": negative, "seed": seed, "width": self.size[0], "height": self.size[1],
+        """txt2img over A1111/Forge's API; the checkpoint is set for this request only."""
+        body = {"prompt": prompt, "negative_prompt": negative, "seed": seed,
+                "width": self.size[0], "height": self.size[1],
                 "steps": 25, "cfg_scale": 6, "batch_size": 1, "n_iter": 1}
         if (m := self.chosen_model()):
             body["override_settings"] = {"sd_model_checkpoint": m}       # just for this request
@@ -134,6 +139,8 @@ class A1111(Backend):
 
 
 class ComfyUI(Backend):
+    """ComfyUI: a minimal SDXL graph queued over its HTTP API."""
+
     name = "ComfyUI"
 
     def models(self) -> list[str]:
@@ -150,6 +157,7 @@ class ComfyUI(Backend):
         return self.chosen_model() or next((n for n in names if "xl" in n.lower()), names[0])
 
     def generate(self, prompt, negative, seed):
+        """Queue the graph (checkpoint, prompts, latent, sampler, decode, save) and wait for the image."""
         ckpt = self._checkpoint()
         graph = {
             "1": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": ckpt}},
@@ -217,6 +225,7 @@ class _WS:
         self.sock.sendall(hdr + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
 
     def recv(self) -> dict:
+        """Read one websocket message (frames joined), answering pings; returns the decoded JSON."""
         payload = b""
         while True:
             b1, b2 = self._read(2)
@@ -249,6 +258,7 @@ class Fooocus(Backend):
     """Fooocus (incl. mashb1t's 1-Up Edition) through its Gradio 3 queue — the same calls its Generate
     button makes: get_task(all settings) then generate_clicked(task). Settings are matched by label, so
     reordered or added controls in newer Fooocus versions don't break it."""
+
     name = "Fooocus"
 
     def __init__(self, url: str, performance: str = ""):
@@ -276,6 +286,8 @@ class Fooocus(Backend):
         return self._base_model().get("value") or ""
 
     def _value(self, cid: int, prompt: str, negative: str, seed: int):
+        """The value for one Gradio input component: prompts, seed, and the settings we choose matched by label; else
+        its default."""
         c = self.comps[cid]
         p = c.get("props", {})
         label, elem = p.get("label"), p.get("elem_id")
@@ -305,6 +317,7 @@ class Fooocus(Backend):
         return p.get("value")
 
     def _run(self, fn: int, data: list, session: str) -> dict:
+        """Run one Gradio function through the queue websocket; returns the final output message."""
         ws = _WS(self.url.replace("http", "ws", 1) + "/queue/join")
         try:
             while True:
@@ -324,12 +337,14 @@ class Fooocus(Backend):
             ws.close()
 
     def generate(self, prompt, negative, seed):
+        """Set up the task, run generation, then download the last image file it reports."""
         session = base64.b32encode(os.urandom(10)).decode().lower()
         self._run(self.task_fn, [self._value(c, prompt, negative, seed) for c in self.inputs], session)
         out = self._run(self.gen_fn, [None], session)
         files: list[str] = []
 
         def walk(x):
+            """Collect image file names anywhere in Gradio's nested output."""
             if isinstance(x, dict):
                 name = x.get("name") or x.get("path")
                 if isinstance(name, str) and name.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
@@ -510,12 +525,13 @@ def _components(fg: bytearray, w: int, h: int, keep_ratio: float = 0.01) -> byte
     return keep
 
 
-def to_icon(data: bytes, size: int = 512, log=lambda s: None) -> "Image.Image":
+def to_icon(data: bytes, size: int = 512, log=lambda s: None):
     """Cut the subject out of a render on a plain-ish backdrop, crop, pad to a square, scale to `size`.
 
     A segmentation model (see remove_background) when one is reachable; else a flood fill from the image edge
     that only spreads through backdrop-colored pixels or smooth steps away from them (gradients, soft shadows),
-    so light-gray metal behind a crisp edge stays part of the icon. Every sizable piece is kept."""
+    so light-gray metal behind a crisp edge stays part of the icon. Every sizable piece is kept.
+    Returns a PIL RGBA image."""
     from collections import deque
 
     from PIL import Image, ImageFilter

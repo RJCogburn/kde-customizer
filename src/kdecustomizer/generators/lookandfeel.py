@@ -7,6 +7,7 @@ from ..spec import Theme
 
 
 def metadata(theme: Theme) -> str:
+    """metadata.json of the Look-and-Feel package (with X-KDE-Customizer-Slug, which installed.py looks for)."""
     return json.dumps({
         "KPackageStructure": "Plasma/LookAndFeel",
         "KPlugin": {
@@ -34,4 +35,7 @@ def defaults(theme: Theme) -> str:
         "[kcminputrc][Mouse]", f"cursorTheme={theme.cursors_name}", "",
         "[kwinrc][org.kde.kdecoration2]", f"library={lib}", f"theme={deco}", "",
         "[ksplashrc][KSplash]", f"Theme={theme.splash_name}", "",
+        # the wallpaper package install.sh puts in ~/.local/share/wallpapers/<Slug>; Plasma uses it for every new
+        # desktop (layout reset, new screen) — without it that falls back to Breeze's "Next"
+        *(["[Wallpaper]", f"Image={theme.slug}", ""] if theme.wallpaper else []),
     ])

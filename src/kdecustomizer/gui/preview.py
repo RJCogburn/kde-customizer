@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
-    QBrush, QColor, QFont, QIcon, QImage, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap,
+    QColor, QFont, QIcon, QImage, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap,
 )
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
@@ -20,6 +20,27 @@ from ..generators import konsole as konsole_gen
 from ..spec import Panel, Theme
 
 W, H = 1280, 800  # logical canvas
+
+# Wallpapers decoded and cut to the W x H canvas once, shared by every Preview (editor, start-page thumbnails,
+# compare view, variations): an 8K image is ~66 MB decoded and was re-scaled on every paint.
+_WP_CACHE: dict[tuple[str, int], QPixmap] = {}
+
+
+def _wallpaper_pixmap(path: Path) -> QPixmap:
+    """The wallpaper scaled and center-cropped to the W x H canvas, from the shared cache."""
+    try:
+        key = (str(path), path.stat().st_mtime_ns)
+    except OSError:
+        return QPixmap()
+    if key not in _WP_CACHE:
+        full = QPixmap(str(path))
+        if full.isNull():
+            return full
+        pm = full.scaled(W, H, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        _WP_CACHE[key] = pm.copy((pm.width() - W) // 2, (pm.height() - H) // 2, W, H)    # centered, like before
+        while len(_WP_CACHE) > 6:                                                         # a few themes' worth
+            del _WP_CACHE[next(iter(_WP_CACHE))]
+    return _WP_CACHE[key]
 
 
 def _q(c, alpha: float = 1.0) -> QColor:
@@ -32,6 +53,7 @@ def _q(c, alpha: float = 1.0) -> QColor:
 
 
 def _font(spec: str, fallback_pt: float, bold: bool = False) -> QFont:
+    """A QFont from a KDE font spec ('Family,size,…'); empty parts fall back."""
     f = QFont()
     family, _, size = spec.partition(",")
     if family.strip():
@@ -65,6 +87,7 @@ class IconCache:
         ensure_icon_paths()
 
     def get(self, theme: str, names: tuple[str, ...], size: int) -> QPixmap:
+        """The first of `names` the icon theme has, as a pixmap (rendered while that theme is set, then cached)."""
         key = (theme, names[0], size)
         if key not in self._cache:
             prev = QIcon.themeName()
@@ -91,6 +114,8 @@ _TRAY_ICONS = [("network-wireless", "network-wired"), ("audio-volume-high",), ("
 
 
 class Preview(QWidget):
+    """A mock desktop painted from the theme: wallpaper, panels, a file manager, Konsole, popups, pointer."""
+
     popupChanged = Signal(str)
 
     def __init__(self):
@@ -99,6 +124,7 @@ class Preview(QWidget):
         self.icons = IconCache()
         self._wp_path = ""
         self._wp = QPixmap()
+        self.vision = ""                # color-vision simulation: "" | a vision.MODES key
         self.popup = ""                 # open popup: "" | launcher | calendar | tray | dialog
         self._popup_rect: QRectF | None = None
         self._anchors: dict[str, tuple[QRectF, str]] = {}   # popup -> (panel item box, panel location), canvas coords
@@ -113,7 +139,7 @@ class Preview(QWidget):
         if theme.wallpaper != self._wp_path:
             self._wp_path = theme.wallpaper
             p = Path(theme.wallpaper).expanduser() if theme.wallpaper else None
-            self._wp = QPixmap(str(p)) if p and p.is_file() else QPixmap()
+            self._wp = _wallpaper_pixmap(p) if p and p.is_file() else QPixmap()
         self.update()
 
     def sizeHint(self) -> QSize:
@@ -129,6 +155,7 @@ class Preview(QWidget):
             self.update()
 
     def mousePressEvent(self, e) -> None:
+        """Clicking the launcher, clock or tray toggles its popup; clicking elsewhere closes it."""
         ox, oy, k = self._xform
         pt = QPointF((e.position().x() - ox) / k, (e.position().y() - oy) / k)
         for name, (box, _) in self._anchors.items():
@@ -142,6 +169,7 @@ class Preview(QWidget):
 
     # --- painting --------------------------------------------------------------
     def paintEvent(self, _):
+        """Paint the whole desktop into an image (for blur and color-vision simulation), then onto the widget."""
         if not self.theme:
             return
         t = self.theme
@@ -188,7 +216,27 @@ class Preview(QWidget):
             self._notification(p, area)
         self._pointer(p, QPointF(area.x() + 760, area.y() + 470))
         p.end()
+        if self.vision:
+            canvas = self._simulate(canvas)
         QPainter(self).drawImage(0, 0, canvas)
+
+    def set_vision(self, mode: str) -> None:
+        if mode != self.vision:
+            self.vision = mode
+            self.update()
+
+    def _simulate(self, canvas: QImage) -> QImage:
+        """The canvas as seen with self.vision (needs Pillow; unchanged without it)."""
+        from .. import vision
+        try:
+            rgb = canvas.convertToFormat(QImage.Format_RGB888)
+            out = vision.simulate_image(bytes(rgb.constBits()), (rgb.width(), rgb.height()), rgb.bytesPerLine(),
+                                        self.vision)
+        except (ImportError, KeyError):      # no Pillow: show it as is
+            return canvas
+        img = QImage(out, rgb.width(), rgb.height(), rgb.width() * 3, QImage.Format_RGB888).copy()
+        img.setDevicePixelRatio(canvas.devicePixelRatio())
+        return img
 
     def _pointer(self, p: QPainter, hotspot: QPointF) -> None:
         """The mouse pointer from the theme's cursors (24 px nominal), hotspot at `hotspot`."""
@@ -220,9 +268,9 @@ class Preview(QWidget):
         return _q(self.s[section][key], alpha)
 
     def _wallpaper(self, p: QPainter) -> None:
+        """The wallpaper, or a gradient in the palette when there is none."""
         if not self._wp.isNull():
-            pm = self._wp.scaled(W, H, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-            p.drawPixmap(QPointF((W - pm.width()) / 2, (H - pm.height()) / 2), pm)
+            p.drawPixmap(0, 0, self._wp)            # already W x H (see _wallpaper_pixmap)
             return
         pal = self.theme.palette
         g = QLinearGradient(0, 0, W, H)
@@ -232,6 +280,7 @@ class Preview(QWidget):
         p.fillRect(QRectF(0, 0, W, H), g)
 
     def _panel_rect(self, panel: Panel) -> tuple[QRectF, bool]:
+        """Where a panel sits on the canvas (and whether it's vertical)."""
         h = max(24, min(panel.height, 120))
         gap = 8 if panel.floating else 0
         vertical = panel.location in ("left", "right")
@@ -250,6 +299,7 @@ class Preview(QWidget):
         return QRectF(start, y, length, h), False
 
     def _usable_area(self) -> QRectF:
+        """The canvas minus the panels: where windows go."""
         r = QRectF(0, 0, W, H)
         for panel in self.theme.panels:
             pr, _ = self._panel_rect(panel)
@@ -304,6 +354,7 @@ class Preview(QWidget):
         p.drawRoundedRect(rect, radius, radius)
 
     def _panel(self, p: QPainter, panel: Panel) -> None:
+        """One panel: background, then its widgets laid out along it (spacers take the leftover length)."""
         rect, vertical = self._panel_rect(panel)
         self._plasma_bg(p, rect, self._plasma_radius() if panel.floating else 0)
         thick = rect.width() if vertical else rect.height()
@@ -349,6 +400,7 @@ class Preview(QWidget):
             p.drawPixmap(QRectF(center.x() - size / 2, center.y() - size / 2, size, size), pm, QRectF(pm.rect()))
 
     def _panel_item(self, p, kind, box: QRectF, icon, cell, vertical, fg, location: str) -> None:
+        """One panel widget (launcher, tasks, pager, tray, clock…); records the anchors popups open from."""
         if kind == "tasks":
             for i, names in enumerate(_TASK_ICONS):
                 c = (QPointF(box.center().x(), box.y() + cell * (i + 0.5)) if vertical
@@ -558,7 +610,6 @@ class Preview(QWidget):
         elif location in ("left", "right"):
             rect.moveTop(max(8.0, min(anchor.top(), H - h - 8)))
         clip = self._popup_frame(p, rect)
-        radius = self._plasma_radius()
 
         fg = self.c("Colors:Window", "ForegroundNormal")
         dim = self.c("Colors:Window", "ForegroundInactive")
@@ -582,7 +633,8 @@ class Preview(QWidget):
         # sidebar: categories
         body_top, foot_h = head.bottom() + 6, 48
         side = QRectF(rect.x() + 8, body_top, 178, rect.bottom() - foot_h - body_top - 4)
-        cats = [("Favorites", ("bookmarks", "favorites")), ("All Applications", ("applications-all", "view-list-icons")),
+        cats = [("Favorites", ("bookmarks", "favorites")),
+                ("All Applications", ("applications-all", "view-list-icons")),
                 ("Development", ("applications-development",)), ("Graphics", ("applications-graphics",)),
                 ("Internet", ("applications-internet",)), ("Multimedia", ("applications-multimedia",)),
                 ("Office", ("applications-office",)), ("Settings", ("preferences-system", "applications-system")),
@@ -602,8 +654,10 @@ class Preview(QWidget):
         # favorites grid
         grid = QRectF(side.right() + 10, body_top + 4, rect.right() - side.right() - 18, side.height() - 4)
         apps = [("Files", ("system-file-manager", "org.kde.dolphin")), ("Browser", ("internet-web-browser",)),
-                ("Terminal", ("utilities-terminal", "org.kde.konsole")), ("Settings", ("systemsettings", "preferences-system")),
-                ("Discover", ("plasmadiscover", "system-software-install")), ("Text Editor", ("accessories-text-editor", "kate")),
+                ("Terminal", ("utilities-terminal", "org.kde.konsole")),
+                ("Settings", ("systemsettings", "preferences-system")),
+                ("Discover", ("plasmadiscover", "system-software-install")),
+                ("Text Editor", ("accessories-text-editor", "kate")),
                 ("Documents", ("okular", "application-pdf")), ("Screenshot", ("spectacle", "applets-screenshooter")),
                 ("Archives", ("ark", "utilities-file-archiver")), ("Calculator", ("accessories-calculator", "kcalc")),
                 ("Music", ("elisa", "multimedia-audio-player")), ("Help", ("help-browser", "system-help"))]
@@ -618,7 +672,8 @@ class Preview(QWidget):
                 p.drawRoundedRect(r.adjusted(4, 2, -4, -2), 4, 4)
             self._icon(p, icons, QPointF(r.center().x(), r.y() + cell_h * 0.38), 48)
             p.setPen(fg)
-            p.drawText(QRectF(r.x() + 2, r.y() + cell_h * 0.66, r.width() - 4, 20), Qt.AlignHCenter | Qt.AlignTop, label)
+            p.drawText(QRectF(r.x() + 2, r.y() + cell_h * 0.66, r.width() - 4, 20), Qt.AlignHCenter | Qt.AlignTop,
+                       label)
 
         # footer: Applications / Places, power buttons
         foot = QRectF(rect.x(), rect.bottom() - foot_h, w, foot_h)
@@ -673,6 +728,7 @@ class Preview(QWidget):
         p.drawPath(path)
 
     def _titlebar(self, p: QPainter, rect: QRectF, title: str, active: bool) -> QRectF:
+        """A window title bar in the decoration's colors and size; returns its rect."""
         d = self.theme.decoration
         top_r = self._window_radius()[0]
         tb = QRectF(rect.x(), rect.y(), rect.width(), d.title_height if d.generate else 32)
@@ -700,6 +756,7 @@ class Preview(QWidget):
         return tb
 
     def _buttons(self, p, codes: str, start: QPointF, step_dir: int, fg: QColor, active: bool) -> None:
+        """Title-bar buttons from a KWin button code string (X close, A maximize, I minimize, M menu…)."""
         seq = codes if step_dir == 1 else codes[::-1]
         x = start.x()
         pal = self.theme.palette
@@ -754,6 +811,7 @@ class Preview(QWidget):
             x += 26 * step_dir
 
     def _app_window(self, p: QPainter, rect: QRectF) -> None:
+        """The file manager window: toolbar, places sidebar, file list with selection, status colors, fields."""
         s = self.c
         wr = self.theme.widgets.radius if self.theme.widgets.generate else 4   # button/field corners
         self._shadow(p, rect, self._window_radius()[0], 1.0)
@@ -856,6 +914,7 @@ class Preview(QWidget):
         p.drawRoundedRect(QRectF(track.x(), track.y(), track.width() * 0.62, track.height()), 3, 3)
 
     def _konsole(self, p: QPainter, rect: QRectF) -> None:
+        """A Konsole window with prompt text and the 16 terminal colors."""
         if not self.theme.konsole:
             return
         a = self.ansi
@@ -866,7 +925,8 @@ class Preview(QWidget):
         font.setStyleHint(QFont.Monospace)
         p.setFont(font)
         lines = [
-            [("user@plasma", "Color2"), (" ", None), ("~/themes", "Color4"), (f" $ kdec build {self.theme.slug.lower()}.toml", None)],
+            [("user@plasma", "Color2"), (" ", None), ("~/themes", "Color4"),
+             (f" $ kdec build {self.theme.slug.lower()}.toml", None)],
             [(f"built build/{self.theme.slug}", None)],
             [("$ ", None), ("ls", None)],
             [("install.sh", "Color2"), ("  ", None), ("lookandfeel/", "Color4"), ("  ", None),
@@ -895,6 +955,7 @@ class Preview(QWidget):
         p.fillRect(QRectF(rect.x() + 14, y - lh + 2, 9, 16), _q(a["Foreground"], 0.8))
 
     def _notification(self, p: QPainter, area: QRectF) -> None:
+        """A Plasma notification in the bottom corner."""
         rect = QRectF(area.right() - 340, area.bottom() - 100, 324, 84)
         self._shadow(p, rect, self._plasma_radius(), 0.5)
         self._plasma_bg(p, rect, self._plasma_radius())

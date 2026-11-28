@@ -20,7 +20,8 @@ V="$F/$ID"
 [[ -n "$ID" && -d "$V" ]] || exit 0
 
 put() {  # put SRC DEST: copy when DEST exists (the app is set up for it) and differs; true when copied
-  [[ -f "$1" && -f "$2" ]] && [[ "$(cat "$1")" != "$(cat "$2")" ]] && cat "$1" > "$2"   # no cmp: diffutils may be missing
+  # (no cmp: diffutils may be missing)
+  [[ -f "$1" && -f "$2" ]] && [[ "$(cat "$1")" != "$(cat "$2")" ]] && cat "$1" > "$2"
 }
 put "$V/kde-customizer.css" "$CONF/gtk-4.0/kde-customizer.css" || true
 if put "$V/kitty.conf" "$CONF/kitty/kde-customizer-theme.conf"; then
@@ -52,6 +53,7 @@ def follow_script() -> str:
 
 
 def path_unit(watch: str) -> str:
+    """systemd .path unit that fires when `watch` (kdeglobals) changes."""
     return "\n".join([
         "[Unit]",
         "Description=kde-customizer: follow Plasma's light/dark switch in GTK apps and terminals",
@@ -66,6 +68,7 @@ def path_unit(watch: str) -> str:
 
 
 def service_unit(script: str) -> str:
+    """systemd service the .path unit starts: runs follow.sh once."""
     return "\n".join([
         "[Unit]",
         "Description=kde-customizer: follow Plasma's light/dark switch in GTK apps and terminals",

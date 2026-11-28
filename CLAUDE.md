@@ -31,6 +31,13 @@ Target system: Plasma 6.8, Qt 6, Python 3.11+ (dev box runs 3.14, CachyOS).
   `find_plate()` = ring just inside the edges (else dominant color) — the plate is redrawn as a graphite gradient
   + accent rim (Qt Difference-blend mask), the logo keeps its colors (dark unsaturated logos inverted); no plate =
   left alone. Written as SVG-wrapped PNGs in `apps-recolored/scalable` (after signature dirs, which win).
+- Own icons (`[iconset] custom_dir`): a folder of `<icon-name>.svg|png` (subfolders searched, SVG wins). `iconset.build`
+  writes them first into `custom/scalable/<context>` (PNG wrapped in a square SVG, no Pillow/Qt needed), listed first
+  in index.theme, and leaves those names out of every other layer. `iconnames.py` = `CATALOG` (name, category,
+  purpose), `theme_index(base)` (every name along the Inherits chain -> file, cached), `installed_apps()` (icon ->
+  app name, cached), `unknown_names()` (typo warning, also in `ai.check`). GUI: Icons › Your own icons +
+  `gui/icon_names.py` (Icon Names window). Bundled in builds as `custom-icons/`; `spec.save()` stores paths inside
+  the spec's folder relative (wallpaper, signature_dir, custom_dir).
 - `signature.py` — 14 `SLOTS` made custom: `svg` (AI JSON of SVGs, sanitized), `image` (local image AI), or
   `import`. Stored in `<spec dir>/<slug>-icons/{svg,png}/<slot>.*`; they replace recolored versions.
 - `imagegen.py` — checkpoint choice: `Backend.models()` / `default_model()` / `chosen_model()` (`model` =
@@ -102,6 +109,17 @@ login/apply.sh build/<Slug>` writes everything under <tmp>. For Plasma Login, th
 gray background — the wallpaper is a separate process) and screenshot it.
 
 ## GUI
+Window = `gui/app.py` `Main`: only the frame (toolbar, Output dock, start page <-> editor). Its work is in mixins that
+share `self` (state like `self.theme`, `self.text`, `self.colors` is created in `Main.__init__`):
+`gui/pages/{theme,colors,desktop,panels,fonts,tweaks}.py` build one section each (`pages/__init__.FormHelpers` =
+`_form_page`/`_group`/`_line`), `gui/editing.py` = form <-> Theme, reactions to edits, preview/compare/icon preview,
+undo, autosave; `gui/files.py` = new/open/save/shared themes/drops; `gui/desktop_actions.py` = build, export, Apply,
+Undo Apply, installed themes, setup check, update notice; `gui/fields.py` = ColorField, FontField, TWEAK_PRESETS,
+COMMON_WIDGETS, POPUPS, `combo`, `scroll`. Put new code in the mixin it belongs to, not in app.py.
+Mixins import relative to their folder (`pages/` modules use `from ... import spec`, `from ..fields import …`).
+`build._write_install_script` = one helper per install.sh step (`_header_lines`, `_copy_lines`, `_apply_lines`,
+`_settings_lines`, + the GTK/terminal/browser/VS Code/variant/follow/system ones); check a refactor by diffing the
+install.sh of every example/starter before and after.
 `gui/app.py` = editor sections (left; `gui/sections.py` = sidebar list + stack with QTabWidget's API, so
 `self.tabs` still has addTab/tabText/setCurrentIndex) + `gui/preview.py` live preview (right) + `gui/ai_panel.py` on top.
 "Compare with my desktop" (`gui/compare.py`): `snapshot.take()` once, both sides rendered by offscreen Previews
@@ -110,7 +128,19 @@ Autosave: `_commit()`/`set_theme(dirty)` write `library.autosave()` (`$XDG_STATE
 a window only ever clears the copy it wrote (`_kept`), so another session's leftovers wait for the start page's
 Recover/Discard banner. Apply: `gui/apply_summary.py` lists `always()` + skippable `parts()` → install.sh args
 (`build.SKIP_PARTS`, `--no-*`; skipped = untouched, not undone; unticked remembered in QSettings per theme id).
-`gui/setup_dialog.py` = `doctor.py` (`kdec doctor`: optional tools + per-distro install commands from os-release).
+`gui/setup_dialog.py` = `doctor.py` (`kdec doctor`: optional tools + per-distro install commands from os-release),
+rows filled from `doctor.run_iter()` on a QThread (don't name it `self.thread`: QObject.thread() exists).
+Apply builds first, then the summary: `build.unchanged_system_parts()` (login/boot hash = `build.tree_hash`, computed
+in Python and written into install.sh as a literal) says when no password is needed. install.sh ends by writing
+`build.spec_hash(original theme)` to `$STATE/installed-<Slug>`; `installed.outdated()` compares recent specs with it
+(Installed… › Update, start-page count). `failures.explain()` turns install.sh output into plain-language causes
+(Apply window, `kdec apply` hints). `gui/history_dialog.py` = Undo Apply's arrow (any restore point).
+`gui/finder.py` = Find a setting (Ctrl+F): indexes labels/buttons/group titles of every section, label matches
+before tooltip matches, `reveal()` scrolls, focuses and outlines. Preview `vision` = `vision.py` (Machado matrices,
+Pillow `convert(matrix)`; the menu is hidden without Pillow). `updates.py`: AppImage (`$APPIMAGE`) or the tarball
+(`update-check` marker next to `python/`, made by build-packages.sh, copied by packaging/install.sh) check GitHub's
+latest release once a day (QSettings `updates/*`); start-page banner. `store.py` = `kdec export --store` / Export ›
+For the KDE Store (one archive per part + UPLOAD.md + preview.png in the GUI).
 Shared themes: `library.unpack_shared()` (refuses links/escapes, needs `<dir>/theme.toml`) into `themes_dir()`;
 the GUI opens the spec and rebuilds, never runs the archive's install.sh. Drops: `.toml` opens, `.tar.gz` installs.
 Colors › Variations: `variations.py` (accent ±30°/opposite, warmer/cooler = neutrals tinted to a hue, contrast,
@@ -137,6 +167,22 @@ for `KEEP_SECONDS` — timeout/Esc/Undo runs the restore point created during th
 metadata, or `org.kdecustomizer.*` ids; parts found by install.sh's names; "<Name> Light|Dark" grouped as
 variants; in-use ones can't be removed). `imagepalette.py`: k-means on ~4k pixels (Qt or Pillow), lightness set
 like `variant.palette()`, colors moved with `variant._readable()`.
+
+## Performance (measured on this box; keep these when changing the code)
+- Caches, all keyed by the XDG data dirs + HOME (so tests and other folders never get a stale result):
+  `appicons.IconFinder.get(base)` (icon file index, 240 → 0 ms after the first), `appicons.installed_apps()`
+  (.desktop scan, shared with `iconnames`), `iconnames.theme_index()`. `iconset._canonical_entries` is cached per
+  folder until its mtime changes. Pass `refresh=True` to re-read. Scans use `os.scandir` + string ops: a `Path`
+  per file cost ~2 s on big themes.
+- GUI icon preview (`_build_preview_icons`) runs on a worker thread into `preview-icons/set0|set1` (alternating, the
+  search path switches when done; one build at a time, the newest edit is built next): ~0.1 s, was 0.38 s on the
+  GUI thread per accent change.
+- Preview wallpapers: decoded once, cut to the 1280×800 canvas and shared by every `Preview` (`_WP_CACHE`, 6 kept);
+  an 8K image was ~66 MB per preview and re-scaled on every paint.
+- `cursorset`: each SVG parsed once for all sizes. `build.tree_hash`: `os.walk` + `hashlib.file_digest`.
+- `appicons._dist` = `math.dist` (called ~100k times per icon by `find_plate`).
+- Reference timings: preview paint ~4 ms, `ai.check` ~6 ms, full build ~135 ms (mostly Xcursor rendering),
+  colors from an 8K image ~150 ms (mostly decoding).
 
 ## Window decoration (`[decoration] generate = true`)
 `generators/aurorae.py` → `build/<Slug>/aurorae/<Slug>-Decoration/` (installed to `$DATA/aurorae/themes/`):
@@ -172,7 +218,9 @@ KWin effects, arbitrary `tweaks`) is written by `install.sh` with `kwriteconfig6
 
 ## Tests
 `tests/` (pytest; `pythonpath` set in pyproject). `conftest.py` gives every test a temp HOME + XDG dirs (autouse) and a
-fake `breeze_cursors` base (`cursor_base`). GUI tests run offscreen (skip without PySide6); login-script tests use the
+fake `breeze_cursors` base (`cursor_base`). An autouse guard puts do-nothing stand-ins for pkexec/sudo (they refuse), plasma-apply-*, qdbus6, dbus-send,
+systemctl, code, flatpak, xdg-open… first on PATH: a script that runs by mistake can't reach the session or root.
+Never let a test run install.sh through an unpatched code path. GUI tests run offscreen (skip without PySide6); login-script tests use the
 `KDEC_LOGIN_*` hooks (skip without kwriteconfig6); AI tests use a local fake OpenAI server, never a real provider.
 CI's `test` job runs the suite in an Arch container and gates releases. Add a test with every generator/feature change.
 
@@ -192,6 +240,9 @@ kdec installed [--remove NAME [--dry-run]] # themes we installed; remove one wit
 kdec palette mytheme.toml [image] [--dark|--light] [--dry-run]   # palette from an image (default: wallpaper)
 kdec apply mytheme.toml --skip gtk --skip boot   # install.sh --no-gtk --no-boot (parts left as they are)
 kdec doctor [--image-url URL]              # optional tools present? install commands for this distro
+kdec icon-names [word] [--apps|--all --base B]   # icon names and what each is for
+kdec icons mytheme.toml --custom DIR       # your own icons (<icon-name>.svg|png) on top of the generated set
+kdec export mytheme.toml --store           # one file per part for store.kde.org + UPLOAD.md
 kdec wallpaper mytheme.toml "idea"         # wallpaper in the palette via the local image AI
 QT_QPA_PLATFORM=offscreen pytest -q        # test suite (pip install -e '.[gui,test]')
 kdec ai "warm autumn, dock panel" [--from mytheme.toml] [--provider claude-code(default)|claude|openai|gemini|openrouter|ollama|lmstudio --model M]
@@ -255,6 +306,19 @@ Everything planned is built. Ideas: SDDM themes for distros without Plasma Login
 makepkg result is attached too as the Arch package, since the AUR has no account for this yet).
 Release = bump version in `pyproject.toml` + `src/kdecustomizer/__init__.py` + `packaging/aur/PKGBUILD`, tag.
 `trim-runtime.sh` must leave every Qt lib resolving inside the bundle — it checks with ldd.
+
+## Wallpaper and Global Theme pictures
+Plasma 6 applies a global theme's wallpaper only through the desktop layout: a layout reset (System Settings'
+"Desktop and window layout", our `--layout`) makes plasmashell rebuild the desktop asynchronously, and new desktops get
+`DefaultWallpaper` = the current LnF's `contents/defaults` `[Wallpaper] Image=<name>` -> the wallpaper *package*
+`wallpapers/<name>` (else the Plasma style's default, else Breeze's "Next"). So install.sh turns `build/<Slug>/wallpapers/
+<image>` into the package `$DATA/wallpapers/<Slug>/` (`metadata.json` + `contents/images/<W>x<H>.<ext>`,
+`previews.wallpaper_file_name`), the LnF says `Image=<Slug>` (the light/dark variant points at the theme's package),
+and `plasma-apply-wallpaperimage` gets the package folder. Source: plasma-workspace `libklookandfeel/
+klookandfeelmanager.cpp`, `shell/shellcorona.cpp` (`loadLookAndFeelDefaultLayout`), `wallpapers/defaultwallpaper.cpp`.
+LnF packages fall back to org.kde.breeze.desktop for missing files, so `previews.render()` writes
+`contents/previews/{preview.png,fullscreenpreview.jpg,lockscreen.png}` (Breeze's sizes) from the editor's Preview —
+needs PySide6 and the QApplication's thread (the CLI makes an offscreen one); skipped otherwise.
 
 ## Portability rule
 Built output must not contain paths from the build machine. Wallpaper is bundled in `wallpapers/` and set by

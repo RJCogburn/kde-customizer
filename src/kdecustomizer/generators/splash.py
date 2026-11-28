@@ -34,6 +34,7 @@ def background_file(theme: Theme) -> str | None:
 
 
 def qml(theme: Theme) -> str:
+    """Splash.qml for ksplashqml: background (gradient, wallpaper or solid), name, progress bar following `stage`."""
     p = theme.palette.resolved()
     bg, fg, acc = parse(p.background), parse(p.foreground), parse(p.accent)
     text = theme.splash_screen.text or theme.name

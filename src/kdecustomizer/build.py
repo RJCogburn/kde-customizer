@@ -1,6 +1,7 @@
 """Turn a Theme into a self-contained build directory with its own install.sh."""
 from __future__ import annotations
 
+import json
 import shlex
 import shutil
 import sys
@@ -9,7 +10,10 @@ from dataclasses import replace
 from pathlib import Path
 
 from . import cursorset, iconset
-from .generators import apps, aurorae, bootsplash, colors, gtk, konsole, kvantum, layout, lightdark, lookandfeel, loginscreen, mozilla, plasmastyle, restore, splash
+from .generators import (
+    apps, aurorae, bootsplash, colors, gtk, konsole, kvantum, layout, lightdark, lookandfeel, loginscreen, mozilla,
+    plasmastyle, restore, splash,
+)
 from .spec import Theme, save
 
 _FONT_KEYS = {  # Fonts field -> (file, group, key)
@@ -66,6 +70,8 @@ def _kwrite(file: str, group: str, key: str, value: object) -> str:
 
 
 def build(theme: Theme, out_root: str | Path = "build") -> Path:
+    """Write the complete theme into <out_root>/<Slug>/: Look-and-Feel package, color scheme, every generated part, the
+    bundled wallpaper and icon folders, a portable theme.toml, install.sh and restore-point.sh. Returns that folder."""
     original = theme
     if theme.cursorset.generate and not cursorset.base_available(theme):
         # e.g. a shared spec built on a machine without the base: fall back to the named installed cursors
@@ -86,6 +92,8 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
         (out / "wallpapers").mkdir()
         shutil.copy2(src, out / "wallpapers" / src.name)
 
+    from . import previews
+    previews.render(theme, lnf / "contents/previews")      # System Settings' pictures (else Breeze's are shown)
     (lnf / "metadata.json").write_text(lookandfeel.metadata(theme))
     (lnf / "contents/defaults").write_text(lookandfeel.defaults(theme))
     (lnf / "contents/layouts/org.kde.plasma.desktop-layout.js").write_text(layout.generate(theme))
@@ -102,14 +110,19 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
         sig = Path(theme.iconset.signature_dir) if theme.iconset.signature_dir else None
         if sig and sig.is_dir():  # bundle the generated originals so the shared spec rebuilds the same
             shutil.copytree(sig, out / "signature-icons")
+        own = Path(theme.iconset.custom_dir) if theme.iconset.custom_dir else None
+        if own and own.is_dir():  # the user's own icons, likewise
+            shutil.copytree(own, out / "custom-icons", ignore=shutil.ignore_patterns(".*"))
 
     if theme.cursorset.generate:
         cursorset.build(theme, out / "cursors")
 
     # Ship the editable spec too, with the wallpaper / signature icons pointing at the bundled copies.
     portable = replace(original, wallpaper=f"wallpapers/{Path(theme.wallpaper).name}" if theme.wallpaper else "")
-    if (out / "signature-icons").is_dir():
-        portable.iconset = replace(original.iconset, signature_dir="signature-icons")
+    # folders that weren't bundled are dropped: the shared spec must not point into this machine
+    portable.iconset = replace(original.iconset,
+                               signature_dir="signature-icons" if (out / "signature-icons").is_dir() else "",
+                               custom_dir="custom-icons" if (out / "custom-icons").is_dir() else "")
     save(portable, out / "theme.toml")
     (out / "color-schemes" / f"{theme.slug}.colors").write_text(colors.generate(theme))
 
@@ -167,7 +180,7 @@ def build(theme: Theme, out_root: str | Path = "build") -> Path:
     if theme.light_dark.auto:
         _build_variant(theme, out)
 
-    _write_install_script(theme, out)
+    _write_install_script(theme, out, spec_hash(original))
     return out
 
 
@@ -180,6 +193,9 @@ def _build_variant(theme: Theme, out: Path) -> None:
     from . import variant
     vt = variant.opposite(theme)
     vout = build(vt, out / "variant")
+    if theme.wallpaper:     # only the theme's own wallpaper package is installed: point the variant at it
+        d = vout / "lookandfeel" / vt.id / "contents/defaults"
+        d.write_text(d.read_text().replace(f"[Wallpaper]\nImage={vt.slug}\n", f"[Wallpaper]\nImage={theme.slug}\n"))
     for p in vout.iterdir():
         if p.name not in _VARIANT_KEEP:
             shutil.rmtree(p) if p.is_dir() else p.unlink()
@@ -226,11 +242,45 @@ def _skippable(key: str, label: str, lines: list[str]) -> list[str]:
     return [f"if (( {var} )); then", *lines, "else", f'  echo "==> {label}"', f'  echo "skipped ({flag})"', "fi"]
 
 
-def _write_install_script(theme: Theme, out: Path) -> None:
-    tweaks = all_tweaks(theme)
-    q = shlex.quote
+def _write_install_script(theme: Theme, out: Path, fingerprint: str = "") -> None:
+    """Write install.sh (and restore-point.sh) into the build. install.sh runs these steps in order; each helper
+    returns its bash lines. `fingerprint` = spec_hash of the theme as written (before build-time fallbacks)."""
+    s = _header_lines(theme)
+    s += _copy_lines(theme)
+    s += _skippable("gtk", "GTK 4 / libadwaita apps", _gtk_lines(theme))
+    s += _skippable("terminals", "terminals", _terminal_lines(theme))
+    s += _skippable("browsers", "Firefox / Thunderbird", _mozilla_lines(theme))
+    s += _skippable("vscode", "VS Code", _vscode_lines(theme))
+    if theme.wallpaper:
+        s += _skippable("wallpaper", "wallpaper", _wallpaper_lines(theme))
+    s += _variant_lines(theme)
+    s += _apply_lines(theme)
+    s += _settings_lines(theme)
+    s += _follow_lines(theme)
+    if theme.login_screen.generate or theme.boot_splash.generate:
+        s += _system_lines(theme, out)
+    s += [
+        'echo "==> reloading KWin"',
+        "qdbus6 org.kde.KWin /KWin reconfigure || true",
+        "# which version of the theme file this is (the app shows when the file has changed since)",
+        'mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/kde-customizer"',
+        f'echo {fingerprint or spec_hash(theme)} > "${{XDG_STATE_HOME:-$HOME/.local/state}}/kde-customizer/'
+        f'installed-{theme.slug}"',
+        'echo "Done."',
+        "",
+    ]
+    path = out / "install.sh"
+    path.write_text("\n".join(s))
+    path.chmod(0o755)
+    rp = out / "restore-point.sh"
+    rp.write_text(restore.script(theme))
+    rp.chmod(0o755)
+
+
+def _header_lines(theme: Theme) -> list[str]:
+    """Shebang, usage, paths, option parsing (--layout, --no-…), then the restore point."""
     usage = [f"#   {flag:<15} leave alone {what}" for _, flag, what in SKIP_PARTS.values()]
-    s = [
+    return [
         "#!/usr/bin/env bash",
         f"# Installs and applies the '{theme.name}' theme. Generated by kde-customizer.",
         "# Usage: ./install.sh [--layout] [--no-…]",
@@ -250,69 +300,69 @@ def _write_install_script(theme: Theme, out: Path) -> None:
         "done",
         "",
         "# record the desktop as it is now; `kdec revert` (or the printed restore.sh) puts it back",
-        'if (( LAYOUT )); then bash "$DIR/restore-point.sh" --layout || true; else bash "$DIR/restore-point.sh" || true; fi',
+        'if (( LAYOUT )); then bash "$DIR/restore-point.sh" --layout || true; '
+        'else bash "$DIR/restore-point.sh" || true; fi',
         "",
-        'echo "==> color scheme"',
-        'mkdir -p "$DATA/color-schemes"',
-        'cp "$DIR"/color-schemes/*.colors "$DATA/color-schemes/"',
     ]
+
+
+def _replace_dir(label: str, src: str, dest: str, name: str) -> list[str]:
+    """Copy build folder $DIR/<src>/<name> to <dest>/<name>, replacing an older copy."""
+    return [f'echo "==> {label}"', f'mkdir -p "{dest}"', f'rm -rf "{dest}/{name}"',
+            f'cp -r "$DIR/{src}/{name}" "{dest}/"']
+
+
+def _copy_lines(theme: Theme) -> list[str]:
+    """Copy the generated parts into the user's folders (color scheme, Konsole, Plasma style, icons, cursors,
+    Kvantum, title bars). Nothing is switched on yet."""
+    q = shlex.quote
+    s = ['echo "==> color scheme"', 'mkdir -p "$DATA/color-schemes"',
+         'cp "$DIR"/color-schemes/*.colors "$DATA/color-schemes/"']
     if theme.konsole:
         s += ['echo "==> konsole"', 'mkdir -p "$DATA/konsole"', 'cp "$DIR"/konsole/* "$DATA/konsole/"']
     if theme.plasma.generate:
         name = theme.plasma_style_name
-        s += [
-            'echo "==> plasma style"',
-            'mkdir -p "$DATA/plasma/desktoptheme"',
-            f'rm -rf "$DATA/plasma/desktoptheme/{name}"',
-            f'cp -r "$DIR/plasma/{name}" "$DATA/plasma/desktoptheme/"',
-            "# drop cached renders of the old version so new colors show up",
-            f'rm -f "${{XDG_CACHE_HOME:-$HOME/.cache}}"/plasma_theme_{name}*.kcache '
-            f'"${{XDG_CACHE_HOME:-$HOME/.cache}}"/plasma-svgelements-{name}*',
-        ]
+        s += _replace_dir("plasma style", "plasma", "$DATA/plasma/desktoptheme", name)
+        s += ["# drop cached renders of the old version so new colors show up",
+              f'rm -f "${{XDG_CACHE_HOME:-$HOME/.cache}}"/plasma_theme_{name}*.kcache '
+              f'"${{XDG_CACHE_HOME:-$HOME/.cache}}"/plasma-svgelements-{name}*']
     if theme.iconset.generate:
-        name = theme.icons_name
-        s += [
-            'echo "==> icon theme"',
-            'mkdir -p "$DATA/icons"',
-            f'rm -rf "$DATA/icons/{name}"',
-            f'cp -r "$DIR/icons/{name}" "$DATA/icons/"',
-            'rm -f "${XDG_CACHE_HOME:-$HOME/.cache}"/icon-cache.kcache',
-        ]
+        s += _replace_dir("icon theme", "icons", "$DATA/icons", theme.icons_name)
+        s.append('rm -f "${XDG_CACHE_HOME:-$HOME/.cache}"/icon-cache.kcache')
     if theme.cursorset.generate:
-        name = theme.cursors_name
-        s += [
-            'echo "==> cursor theme"',
-            'mkdir -p "$DATA/icons"',
-            f'rm -rf "$DATA/icons/{name}"',
-            f'cp -r "$DIR/cursors/{name}" "$DATA/icons/"',
-        ]
+        s += _replace_dir("cursor theme", "cursors", "$DATA/icons", theme.cursors_name)
     if theme.widgets.generate:
         name = theme.kvantum_name
-        s += [
-            'echo "==> app style (Kvantum)"',
-            'mkdir -p "$CONF/Kvantum"',
-            f'rm -rf "$CONF/Kvantum/{name}"',
-            f'cp -r "$DIR/kvantum/{name}" "$CONF/Kvantum/"',
-            f'kwriteconfig6 --file "$CONF/Kvantum/kvantum.kvconfig" --group General --key theme {q(name)}',
-        ]
+        s += _replace_dir("app style (Kvantum)", "kvantum", "$CONF/Kvantum", name)
+        s.append(f'kwriteconfig6 --file "$CONF/Kvantum/kvantum.kvconfig" --group General --key theme {q(name)}')
     if theme.decoration.generate:
-        name = theme.decoration_name
-        s += [
-            'echo "==> window decoration"',
-            'mkdir -p "$DATA/aurorae/themes"',
-            f'rm -rf "$DATA/aurorae/themes/{name}"',
-            f'cp -r "$DIR/aurorae/{name}" "$DATA/aurorae/themes/"',
-        ]
-    s += _skippable("gtk", "GTK 4 / libadwaita apps", _gtk_lines(theme))
-    s += _skippable("terminals", "terminals", _terminal_lines(theme))
-    s += _skippable("browsers", "Firefox / Thunderbird", _mozilla_lines(theme))
-    s += _skippable("vscode", "VS Code", _vscode_lines(theme))
-    if theme.wallpaper:
-        s += _skippable("wallpaper", "wallpaper",
-                        ['echo "==> wallpaper"', f'mkdir -p "$DATA/wallpapers/{theme.slug}"',
-                         f'cp "$DIR"/wallpapers/* "$DATA/wallpapers/{theme.slug}/"'])
-    s += _variant_lines(theme)
-    s += [
+        s += _replace_dir("window decoration", "aurorae", "$DATA/aurorae/themes", theme.decoration_name)
+    return s
+
+
+def _wallpaper_lines(theme: Theme) -> list[str]:
+    """Install the wallpaper as a Plasma wallpaper package, ~/.local/share/wallpapers/<Slug>/ = metadata.json +
+    contents/images/<W>x<H>.<ext>. The global theme names it ([Wallpaper] Image=<Slug>), so Plasma uses it for new
+    desktops too; a plain image there isn't a package and Plasma fell back to Breeze's."""
+    from . import previews
+    src = Path(theme.wallpaper).name
+    meta = json.dumps({"KPlugin": {"Id": theme.slug, "Name": theme.name,
+                                   "Authors": [{"Name": theme.author or "Unknown"}],
+                                   "Description": f"Wallpaper of the {theme.name} theme"},
+                       "KPackageStructure": "Wallpaper/Images"})
+    pkg = f'"$DATA/wallpapers/{theme.slug}"'
+    return ['echo "==> wallpaper"',
+            f'rm -rf {pkg}', f'mkdir -p {pkg}/contents/images',
+            f'cp "$DIR/wallpapers/"{shlex.quote(src)} '
+            f'{pkg}/contents/images/{previews.wallpaper_file_name(theme.wallpaper)}',
+            f"printf '%s\\n' {shlex.quote(meta)} > {pkg}/metadata.json"]
+
+
+def _apply_lines(theme: Theme) -> list[str]:
+    """Install and apply the global theme, then make running apps pick up each part now (Kvantum only where it's
+    installed; icons, cursors, Plasma style, wallpaper, Konsole profile)."""
+    q = shlex.quote
+    s = [
         'echo "==> global theme package"',
         f'kpackagetool6 -t Plasma/LookAndFeel -u "$DIR/lookandfeel/{theme.id}" 2>/dev/null \\',
         f'  || kpackagetool6 -t Plasma/LookAndFeel -i "$DIR/lookandfeel/{theme.id}"',
@@ -354,42 +404,28 @@ def _write_install_script(theme: Theme, out: Path) -> None:
         # LnF already sets plasmarc; this makes a running shell reload the style immediately.
         s.append(f"plasma-apply-desktoptheme {q(theme.plasma_style_name)} || true")
     if theme.wallpaper:
-        wp = f"$DATA/wallpapers/{theme.slug}/{Path(theme.wallpaper).name}"
-        s += ["if (( WALLPAPER )); then", 'echo "==> wallpaper"', f'plasma-apply-wallpaperimage "{wp}"', "fi"]
+        # the package (not its image file): Plasma then picks the image size nearest each screen
+        s += ["if (( WALLPAPER )); then", 'echo "==> wallpaper"',
+              f'plasma-apply-wallpaperimage "$DATA/wallpapers/{theme.slug}"', "fi"]
     if theme.konsole:
-        s.append(f"kwriteconfig6 --file konsolerc --group 'Desktop Entry' --key DefaultProfile {q(theme.slug + '.profile')}")
-    if tweaks:
-        # settings that come from the spec (fonts, title bar buttons, splash, light/dark) are always written;
-        # --no-tweaks leaves out only the theme's own [tweaks]
-        derived = all_tweaks(replace(theme, tweaks={}))
-        lines = ['echo "==> settings"']
-        for f, groups in derived.items():
-            for g, kv in groups.items():
-                for k, v in kv.items():
-                    lines.append(_kwrite(f, g, k, v))
-        s += lines
-        own = ['echo "==> tweaks"']
-        for f, groups in theme.tweaks.items():
-            for g, kv in groups.items():
-                for k, v in kv.items():
-                    own.append(_kwrite(f, g, k, v))
-        if len(own) > 1:
-            s += _skippable("tweaks", "tweaks", own)
-    s += _follow_lines(theme)
-    if theme.login_screen.generate or theme.boot_splash.generate:
-        s += _system_lines(theme)
-    s += [
-        'echo "==> reloading KWin"',
-        "qdbus6 org.kde.KWin /KWin reconfigure || true",
-        'echo "Done."',
-        "",
-    ]
-    path = out / "install.sh"
-    path.write_text("\n".join(s))
-    path.chmod(0o755)
-    rp = out / "restore-point.sh"
-    rp.write_text(restore.script(theme))
-    rp.chmod(0o755)
+        s.append(f"kwriteconfig6 --file konsolerc --group 'Desktop Entry' --key DefaultProfile "
+                 f"{q(theme.slug + '.profile')}")
+    return s
+
+
+def _settings_lines(theme: Theme) -> list[str]:
+    """Config keys Look-and-Feel can't set: "settings" from the spec (fonts, title bar buttons, splash,
+    light/dark) are always written; the theme's own [tweaks] can be left out with --no-tweaks."""
+    if not all_tweaks(theme):
+        return []
+
+    def writes(tweaks) -> list[str]:
+        return [_kwrite(f, g, k, v) for f, groups in tweaks.items() for g, kv in groups.items() for k, v in kv.items()]
+    s = ['echo "==> settings"', *writes(all_tweaks(replace(theme, tweaks={})))]
+    own = writes(theme.tweaks)
+    if own:
+        s += _skippable("tweaks", "tweaks", ['echo "==> tweaks"', *own])
+    return s
 
 
 def _mozilla_lines(theme: Theme) -> list[str]:
@@ -399,7 +435,7 @@ def _mozilla_lines(theme: Theme) -> list[str]:
     s = [mozilla.PROFILES_FN]
     for app in ("firefox", "thunderbird"):
         roots = " ".join(f'"{r}"' for r in mozilla.ROOTS[app])
-        s += [f"while IFS= read -r P; do", '  UC="$P/chrome/userChrome.css"']
+        s += ["while IFS= read -r P; do", '  UC="$P/chrome/userChrome.css"']
         if getattr(theme.apps, app):
             s += [
                 f'  echo "==> {app}: ${{P##*/}} (restart it to see the colors)"',
@@ -504,19 +540,101 @@ def _follow_lines(theme: Theme) -> list[str]:
     return s
 
 
-def _system_lines(theme: Theme) -> list[str]:
-    """Login screen + boot splash: one pkexec run for whichever changed since last time (hash stamps)."""
-    login = ['"$DIR/login"']
-    if theme.plasma.generate:
-        login.append(f'"$DIR/plasma/{theme.plasma_style_name}"')
-    if theme.iconset.generate:
-        login.append(f'"$DIR/icons/{theme.icons_name}"')
-    if theme.cursorset.generate:
-        login.append(f'"$DIR/cursors/{theme.cursors_name}"')
-    if loginscreen.wallpaper_name(theme):
-        login.append('"$DIR/wallpapers"')
+def system_payload(theme: Theme) -> dict[str, list[str]]:
+    """Login screen / boot splash: the build folders each one's root script copies (relative to the build)."""
+    out: dict[str, list[str]] = {}
+    if theme.login_screen.generate:
+        login = ["login"]
+        if theme.plasma.generate:
+            login.append(f"plasma/{theme.plasma_style_name}")
+        if theme.iconset.generate:
+            login.append(f"icons/{theme.icons_name}")
+        if theme.cursorset.generate:
+            login.append(f"cursors/{theme.cursors_name}")
+        if loginscreen.wallpaper_name(theme):
+            login.append("wallpapers")
+        out["login"] = login
+    if theme.boot_splash.generate:
+        out["boot"] = ["boot"]
+    return out
 
-    def part(key: str, label: str, flag: str, skip_flag: str, available: str, missing: str, payload: list[str]):
+
+def tree_hash(out: Path, rels: list[str]) -> str:
+    """sha256 over every file below these build paths (names + contents), in a fixed order."""
+    import hashlib
+    import os
+    root = str(out)
+    files: list[str] = []
+    for r in rels:                       # os.walk + strings: cursor/icon trees have hundreds of files
+        top = os.path.join(root, r)
+        if os.path.isfile(top):
+            files.append(r)
+        for d, _dirs, names in os.walk(top):
+            rel_d = os.path.relpath(d, root)
+            files += [os.path.join(rel_d, n) for n in names if os.path.isfile(os.path.join(d, n))]
+    h = hashlib.sha256()
+    for rel in sorted(files):
+        with open(os.path.join(root, rel), "rb") as f:
+            h.update(rel.encode() + b"\0" + hashlib.file_digest(f, "sha256").digest())
+    return h.hexdigest()
+
+
+def system_stamps(theme: Theme, out: Path) -> dict[str, str]:
+    """{"login"|"boot": hash of what would be installed} for a built theme."""
+    return {key: tree_hash(out, rels) for key, rels in system_payload(theme).items()}
+
+
+def spec_hash(theme: Theme) -> str:
+    """Fingerprint of a theme as written in its spec, plus the files it uses (wallpaper, icon folders: names, sizes,
+    times). install.sh records it, so the GUI can tell when a theme file has changed since it was installed."""
+    import copy
+    import hashlib
+    import tomllib
+    from .spec import dumps, fix_id, from_dict
+    t = copy.deepcopy(theme)
+    fix_id(t)
+    files: list[Path] = []
+    for obj, attr in ((t, "wallpaper"), (t.iconset, "signature_dir"), (t.iconset, "custom_dir")):
+        val = getattr(obj, attr)
+        if val:
+            p = Path(val).expanduser().resolve()
+            setattr(obj, attr, str(p))
+            files += [p] if p.is_file() else sorted(f for f in p.rglob("*") if f.is_file()) if p.is_dir() else []
+    h = hashlib.sha256(dumps(from_dict(tomllib.loads(dumps(t)))).encode())
+    for f in files:
+        try:
+            st = f.stat()
+        except OSError:
+            continue
+        h.update(f"{f}\0{st.st_size}\0{st.st_mtime_ns}\n".encode())
+    return h.hexdigest()
+
+
+def state_dir() -> Path:
+    import os
+    return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "kde-customizer"
+
+
+def installed_stamp(theme: Theme, key: str) -> str:
+    """The hash install.sh recorded the last time this part was installed ("" = never)."""
+    try:
+        return (state_dir() / f"{key}-{theme.slug}").read_text().strip()
+    except OSError:
+        return ""
+
+
+def unchanged_system_parts(theme: Theme, out: Path) -> set[str]:
+    """Login/boot parts whose files are the same as last time: install.sh skips them (no password prompt)."""
+    return {k for k, v in system_stamps(theme, out).items() if v == installed_stamp(theme, k)}
+
+
+def _system_lines(theme: Theme, out: Path) -> list[str]:
+    """Login screen + boot splash: one pkexec run for whichever changed since last time (hash stamps)."""
+    sums = system_stamps(theme, out)
+
+    def part(key: str, label: str, flag: str, skip_flag: str, available: str, missing: str):
+        """Bash for one system-wide part: skipped / not available / already up to date (same hash as last time) /
+        queued for the single pkexec run."""
         return [
             f'echo "==> {label}"',
             f"if (( ! {flag} )); then",
@@ -524,8 +642,7 @@ def _system_lines(theme: Theme) -> list[str]:
             f"elif ! {{ {available}; }}; then      # grouped: `! a || b` would negate only a",
             f'  echo "{missing}"',
             "else",
-            f"  SUM=\"$(find {' '.join(payload)} -type f -print0 | sort -z | xargs -0 sha256sum "
-            '| sed "s#  $DIR/#  #" | sha256sum | cut -d" " -f1)"',
+            f'  SUM={sums[key]}      # hash of its files (build.tree_hash)',
             f'  if [[ -f "$STATE/{key}-{theme.slug}" && "$(cat "$STATE/{key}-{theme.slug}")" == "$SUM" ]]; then',
             '    echo "already up to date"',
             "  else",
@@ -538,10 +655,10 @@ def _system_lines(theme: Theme) -> list[str]:
     if theme.login_screen.generate:
         s += part("login", "login screen", "LOGIN", "--no-login",
                   "getent passwd plasmalogin >/dev/null || getent passwd sddm >/dev/null",
-                  "Neither Plasma Login Manager nor SDDM is installed: login screen left as is", login)
+                  "Neither Plasma Login Manager nor SDDM is installed: login screen left as is")
     if theme.boot_splash.generate:
         s += part("boot", "boot splash", "BOOT", "--no-boot", "command -v plymouth-set-default-theme >/dev/null",
-                  "Plymouth is not installed: boot splash left as is", ['"$DIR/boot"'])
+                  "Plymouth is not installed: boot splash left as is")
     s += [
         "if (( ${#PARTS[@]} )); then",
         '  echo "==> asking for the admin password (${PARTS[*]})"',
@@ -587,7 +704,8 @@ def _gtk_lines(theme: Theme) -> list[str]:
     ]
     if theme.gtk.flatpak:
         lines += ["# Flatpak apps only see ~/.config/gtk-4.0 with this (read-only) permission",
-                  "command -v flatpak >/dev/null 2>&1 && flatpak override --user --filesystem=xdg-config/gtk-4.0:ro || true"]
+                  "command -v flatpak >/dev/null 2>&1 && "
+                  "flatpak override --user --filesystem=xdg-config/gtk-4.0:ro || true"]
     return lines
 
 
@@ -672,7 +790,8 @@ def _terminal_lines(theme: Theme) -> list[str]:
             f'      cat {A}.tmp > {A}; rm -f {A}.tmp',
             "    else",
             "      # a [general] table before the first table (top-level keys must stay above any table)",
-            "      awk -v imp=\"$IMP\" '!d && /^[[:space:]]*\\[/ { print \"[general]\\nimport = [\" imp \"]\\n\"; d = 1 } "
+            "      awk -v imp=\"$IMP\" '!d && /^[[:space:]]*\\[/ "
+            "{ print \"[general]\\nimport = [\" imp \"]\\n\"; d = 1 } "
             "{ print } END { if (!d) print \"\\n[general]\\nimport = [\" imp \"]\" }' " + A + f" > {A}.tmp",
             f'      cat {A}.tmp > {A}; rm -f {A}.tmp',
             "    fi",
@@ -694,11 +813,13 @@ def _vscode_lines(theme: Theme) -> list[str]:
     """VS Code family: install the extension; the theme is picked in Color Theme (settings.json is left alone)."""
     s: list[str] = []
     if theme.apps.vscode:
-        s += [f'for C in code codium code-oss; do',
+        s += ['for C in code codium code-oss; do',
               '  if command -v "$C" >/dev/null 2>&1; then',
-              f'    echo "==> $C"',
-              f'    "$C" --install-extension "$DIR/apps/vscode/{apps.vscode_id(theme)}.vsix" --force >/dev/null 2>&1 \\',
-              f'      && echo "  installed: pick \\"{theme.name}\\" in Preferences > Color Theme" || echo "  could not install the extension"',
+              '    echo "==> $C"',
+              f'    "$C" --install-extension "$DIR/apps/vscode/{apps.vscode_id(theme)}.vsix" '
+              '--force >/dev/null 2>&1 \\',
+              f'      && echo "  installed: pick \\"{theme.name}\\" in Preferences > Color Theme" '
+              '|| echo "  could not install the extension"',
               "  fi",
               "done"]
     return s

@@ -26,6 +26,7 @@ _FALLOFF = [(0, 1), (1 / 3, 0.5), (0.5, 0.25), (7 / 12, 0.125), (1, 0)]
 
 
 def metadata(theme: Theme) -> str:
+    """metadata.json of the Plasma style."""
     return json.dumps({
         "KPlugin": {
             "Id": theme.plasma_style_name,
@@ -65,6 +66,8 @@ def _n(v: float) -> str:
 
 
 class _Svg:
+    """Collects named SVG elements and their gradients; str() gives the document."""
+
     def __init__(self) -> None:
         self.defs: list[str] = []
         self.body: list[str] = []

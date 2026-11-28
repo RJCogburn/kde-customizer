@@ -105,7 +105,7 @@ def test_cli_doctor(capsys, monkeypatch):
 
 def test_cli_apply_skip(midnight, tmp_path, monkeypatch):
     calls = []
-    monkeypatch.setattr(cli.subprocess, "call", lambda args: calls.append(args) or 0)
+    monkeypatch.setattr(cli, "run_install", lambda args: (calls.append(args), (0, ""))[1])
     spec.save(midnight, tmp_path / "m.toml")
     assert cli.main(["apply", str(tmp_path / "m.toml"), "-o", str(tmp_path / "b"), "--skip", "gtk",
                      "--skip", "boot", "--layout"]) == 0
@@ -254,11 +254,23 @@ def test_variations_dialog_is_one_undo_step(win, qapp):
 @gui
 def test_setup_dialog(qapp, monkeypatch):
     from kdecustomizer.gui.setup_dialog import SetupDialog
-    monkeypatch.setattr(doctor, "run", lambda urls=None: [
-        doctor.Check("kvantum", "Kvantum", "app style", False, "missing", "sudo pacman -S --needed kvantum"),
-        doctor.Check("plasma", "Plasma 6 tools", "all", True, "all there", required=True)])
+    import time
+
+    def slow(urls=None):
+        yield doctor.Check("plasma", "Plasma 6 tools", "all", True, "all there", required=True)
+        time.sleep(0.3)                                 # like the image-AI check asking the network
+        yield doctor.Check("kvantum", "Kvantum", "app style", False, "missing", "sudo pacman -S --needed kvantum")
+    monkeypatch.setattr(doctor, "run_iter", slow)
+    t0 = time.monotonic()
     d = SetupDialog()
+    assert time.monotonic() - t0 < 0.2                  # the window doesn't wait for the checks
+    assert "Checking" in d.heading.text() and not d.copy.isEnabled()
+    deadline = time.monotonic() + 5
+    while d.checking is not None and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
     assert "1 of 2 work here" in d.heading.text() and d.copy.isEnabled()
+    assert "missing" in d.rows["kvantum"][1].text()
     d._copy()
     from PySide6.QtGui import QGuiApplication
     assert QGuiApplication.clipboard().text() == "sudo pacman -S --needed kvantum"

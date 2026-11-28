@@ -66,6 +66,8 @@ def _setting(file: str, group: str, key: str) -> str:
 
 @dataclass
 class Installed:
+    """One installed theme (its Look-and-Feel package) and its light/dark variants."""
+
     id: str
     name: str
     slug: str
@@ -87,6 +89,7 @@ class Installed:
             d / "kde-customizer" / "follow" / self.id,
             _state() / "kde-customizer" / f"login-{s}",
             _state() / "kde-customizer" / f"boot-{s}",
+            _state() / "kde-customizer" / f"installed-{s}",
         ]
         style = d / "plasma" / "desktoptheme" / s
         if "kde-customizer" in _text(style / "metadata.json"):      # never someone else's style of that name
@@ -125,6 +128,7 @@ def _text(p: Path) -> str:
 
 
 def _package(d: Path) -> Installed | None:
+    """An Installed for a Look-and-Feel folder if kde-customizer made it, else None."""
     try:
         meta = json.loads((d / "metadata.json").read_text())
     except (OSError, ValueError):
@@ -156,6 +160,43 @@ def themes() -> list[Installed]:
         else:
             out.append(t)
     return sorted(out, key=lambda t: t.name.lower())
+
+
+def stamp(theme: Installed) -> str:
+    """The spec fingerprint (build.spec_hash) install.sh recorded for it; "" from versions before 0.1.25."""
+    try:
+        return (_state() / "kde-customizer" / f"installed-{theme.slug}").read_text().strip()
+    except OSError:
+        return ""
+
+
+def outdated(specs: list[Path] | None = None) -> dict[str, Path]:
+    """{installed theme id: its spec file} for installed themes whose spec (one of `specs`, default: the recent
+    list) has changed since it was installed."""
+    from . import build, library, spec
+    found: dict[str, Path] = {}
+    by_id = {t.id: t for t in themes()}
+    for path in (library.recent() if specs is None else specs):
+        try:
+            t = spec.load(path)
+        except Exception:       # unreadable spec: nothing to compare
+            continue
+        inst = by_id.get(t.id)
+        if inst and t.id not in found and (st := stamp(inst)) and st != build.spec_hash(t):
+            found[t.id] = Path(path)
+    return found
+
+
+def spec_for(theme: Installed) -> Path | None:
+    """The recent spec file that installs this theme (same id), if any."""
+    from . import library, spec
+    for path in library.recent():
+        try:
+            if spec.load(path).id == theme.id:
+                return Path(path)
+        except Exception:
+            continue
+    return None
 
 
 def find(key: str) -> Installed | None:

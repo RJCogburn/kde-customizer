@@ -1,4 +1,5 @@
-"""Icons tab: generated icon set (recolored base) + signature icons (AI vectors, local image AI, import)."""
+"""Icons tab: generated icon set (recolored base) + your own icons (a folder of <icon-name>.svg|png, with the Icon
+names window) + signature icons (AI vectors, local image AI, import)."""
 from __future__ import annotations
 
 import copy
@@ -7,17 +8,19 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QSettings, QSize, Qt, QThread, Signal
 from PySide6.QtGui import QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
+    QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
-from .. import iconset, imagegen, signature, spec
+from .. import iconnames, iconset, imagegen, signature, spec
 from .ai_panel import current_provider
 
 PERFORMANCE = ["", "Speed", "Quality", "Extreme Speed", "Lightning", "Hyper-SD"]
 
 
 class _Worker(QObject):
+    """Runs one icon job (AI, image AI, import, re-cut) on a worker thread."""
+
     progress = Signal(str)
     done = Signal(list)
     failed = Signal(str)
@@ -34,6 +37,8 @@ class _Worker(QObject):
 
 
 class IconsTab(QWidget):
+    """The Icons section: generated set, your own icons, signature icons."""
+
     changed = Signal()          # spec fields edited
     icons_changed = Signal()    # signature files on disk changed (preview should rebuild)
 
@@ -66,6 +71,44 @@ class IconsTab(QWidget):
         f.addRow(self.app_icons)
         v.addWidget(g)
 
+        g = QGroupBox("Your own icons")
+        ov = QVBoxLayout(g)
+        hint = QLabel("Icons you made yourself, in any app: a folder of SVG or PNG files named after the icon they "
+                      "replace (folder-music.svg, firefox.png…). They win over everything else. Icon names… lists "
+                      "the names and what each one is for, and can add your files one at a time.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: palette(placeholder-text);")
+        ov.addWidget(hint)
+        row = QHBoxLayout()
+        self.custom_dir = QLineEdit(placeholderText="no folder yet")
+        self.custom_dir.setToolTip("Folder with your icons, named <icon-name>.svg or .png (subfolders are searched "
+                                   "too, so an icon theme's own folder works)")
+        self.custom_dir.editingFinished.connect(self._custom_edited)
+        choose = QPushButton(QIcon.fromTheme("folder-open"), "Choose…")
+        choose.setToolTip("Point to a folder of icons you made")
+        choose.clicked.connect(self.choose_custom)
+        clear = QPushButton(QIcon.fromTheme("edit-clear"), "")
+        clear.setToolTip("Stop using this folder (its files are kept)")
+        clear.clicked.connect(lambda: self._set_custom(""))
+        row.addWidget(self.custom_dir, 1)
+        row.addWidget(choose)
+        row.addWidget(clear)
+        ov.addLayout(row)
+        row = QHBoxLayout()
+        names = QPushButton(QIcon.fromTheme("help-contents"), "Icon names…")
+        names.setToolTip("Every icon name, what it's for, and what this theme shows for it now")
+        names.clicked.connect(self.show_names)
+        self.open_custom = QPushButton(QIcon.fromTheme("folder-open"), "Open folder")
+        self.open_custom.clicked.connect(self._open_custom)
+        row.addWidget(names)
+        row.addWidget(self.open_custom)
+        row.addStretch()
+        ov.addLayout(row)
+        self.custom_info = QLabel(wordWrap=True)
+        self.custom_info.setTextFormat(Qt.RichText)
+        ov.addWidget(self.custom_info)
+        v.addWidget(g)
+
         g = QGroupBox("Signature icons")
         sv = QVBoxLayout(g)
         hint = QLabel("Custom-made versions of the 14 icons you see most (folders, home, trash, launcher, "
@@ -82,6 +125,9 @@ class IconsTab(QWidget):
         self.mode.addItem("AI-drawn vectors (crisp at every size)", "svg")
         self.mode.addItem("Local image AI (rendered, e.g. Fooocus)", "image")
         self.mode.currentIndexChanged.connect(self._mode_changed)
+        for c in (self.mode, self.base):
+            c.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            c.setMinimumContentsLength(14)
         sf.addRow("Made by", self.mode)
         url_row = QHBoxLayout()
         self.url = QLineEdit(self.s.value("icons/image_url", "http://127.0.0.1:7865"))
@@ -124,7 +170,7 @@ class IconsTab(QWidget):
         self.grid.setMinimumHeight(210)
         sv.addWidget(self.grid)
 
-        row = QHBoxLayout()
+        buttons = QGridLayout()     # two columns: fits the editor's narrow column without a sideways scroll
         self.make_all = QPushButton(QIcon.fromTheme("tools-wizard"), "Make all")
         self.make_all.clicked.connect(lambda: self.make(None))
         self.remake = QPushButton(QIcon.fromTheme("view-refresh"), "Remake selected")
@@ -132,12 +178,6 @@ class IconsTab(QWidget):
         remove = QPushButton(QIcon.fromTheme("edit-delete"), "Remove")
         remove.setToolTip("Remove the selected signature icons (the icon set's version is used again)")
         remove.clicked.connect(self.remove)
-        row.addWidget(self.make_all)
-        row.addWidget(self.remake)
-        row.addWidget(remove)
-        row.addStretch()
-        sv.addLayout(row)
-        row = QHBoxLayout()
         prompts = QPushButton(QIcon.fromTheme("edit-copy"), "Copy prompts…")
         prompts.setToolTip("Prompts and file names for making the icons in any image app (ArtCraft, Krita AI…)")
         prompts.clicked.connect(self.copy_prompts)
@@ -148,11 +188,10 @@ class IconsTab(QWidget):
         self.recut_btn.setToolTip("Cut the background out of the kept renders again (selected icons, or all).\n"
                                   "Uses rembg when it's installed here or in your image AI (Fooocus, ComfyUI…).")
         self.recut_btn.clicked.connect(self.recut)
-        row.addWidget(prompts)
-        row.addWidget(imp)
-        row.addWidget(self.recut_btn)
-        row.addStretch()
-        sv.addLayout(row)
+        for i, b in enumerate((self.make_all, self.remake, remove, prompts, imp, self.recut_btn)):
+            buttons.addWidget(b, i // 2, i % 2)
+        buttons.setColumnStretch(2, 1)
+        sv.addLayout(buttons)
         self.status = QLabel(wordWrap=True)
         self.status.hide()
         sv.addWidget(self.status)
@@ -162,7 +201,9 @@ class IconsTab(QWidget):
 
     # --- spec <-> form ------------------------------------------------------------------
     def load(self, theme: spec.Theme) -> None:
+        """Show a theme's icon settings (signals blocked: loading isn't an edit)."""
         ics = theme.iconset
+        self.custom_dir.setText(ics.custom_dir)
         for w in (self.generate, self.base, self.style, self.mode, self.app_icons):
             w.blockSignals(True)
         self.generate.setChecked(ics.generate)
@@ -176,6 +217,7 @@ class IconsTab(QWidget):
             w.blockSignals(False)
         self._mode_changed()
         self.refresh_grid()
+        self.refresh_custom()
 
     def store(self, theme: spec.Theme) -> None:
         ics = theme.iconset
@@ -183,6 +225,89 @@ class IconsTab(QWidget):
         ics.base = self.base.currentText().strip()
         ics.style = self.style.text().strip()
         ics.app_icons = "recolor" if self.app_icons.isChecked() else "keep"
+        ics.custom_dir = self.custom_dir.text().strip()
+
+    # --- your own icons -----------------------------------------------------------------
+    def custom_folder(self, create: bool) -> Path | None:
+        """The theme's own-icons folder. With `create`, one is made next to the spec when there is none (the spec
+        is saved first)."""
+        text = self.custom_dir.text().strip()
+        if text:
+            p = Path(text).expanduser()
+            if create:
+                p.mkdir(parents=True, exist_ok=True)
+            return p
+        if not create or not self.ensure_saved():
+            return None
+        t = self.get_theme()
+        p = Path(self.get_spec_path()).parent / f"{t.slug.lower()}-my-icons"
+        p.mkdir(parents=True, exist_ok=True)
+        self._set_custom(str(p))
+        return p
+
+    def _set_custom(self, path: str) -> None:
+        self.custom_dir.setText(path)
+        self._custom_edited()
+
+    def _custom_edited(self) -> None:
+        t = self.get_theme()
+        if self.custom_dir.text().strip() == t.iconset.custom_dir:
+            return
+        if self.custom_dir.text().strip() and not self.generate.isChecked():
+            self.generate.setChecked(True)      # own icons sit on top of the generated set
+        self.changed.emit()
+        self.refresh_custom()
+        self.icons_changed.emit()
+
+    def choose_custom(self) -> None:
+        d = QFileDialog.getExistingDirectory(self, "Folder with your icons (named folder.svg, firefox.png, …)",
+                                             self.custom_dir.text().strip() or str(Path.home()))
+        if d:
+            self._set_custom(d)
+
+    def _open_custom(self) -> None:
+        import subprocess
+        if (p := self.custom_folder(True)) is not None:
+            subprocess.Popen(["xdg-open", str(p)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def refresh_custom(self) -> None:
+        """The line under the own-icons folder: how many icons, and file names nothing asks for."""
+        folder = self.custom_dir.text().strip()
+        mine = iconnames.custom_icons(folder)
+        self.open_custom.setEnabled(bool(folder))
+        if not folder:
+            self.custom_info.setText("")
+            self.custom_info.hide()
+            return
+        self.custom_info.show()
+        if not Path(folder).expanduser().is_dir():
+            self.custom_info.setText("<span style='color:#d4351c'>This folder doesn't exist.</span>")
+            return
+        if not mine:
+            self.custom_info.setText("No icons in this folder yet. Name them after the icon they replace "
+                                     "(see Icon names…).")
+            return
+        shown = ", ".join(sorted(mine)[:8]) + (f" and {len(mine) - 8} more" if len(mine) > 8 else "")
+        text = f"{len(mine)} icon{'s' if len(mine) != 1 else ''}: {shown}."
+        try:
+            bad = iconnames.unknown_names(mine, self.base.currentText().strip())
+        except Exception:       # base theme not installed
+            bad = []
+        if bad:
+            text += ("<br><span style='color:#d4351c'>⚠ Nothing asks for " +
+                     ", ".join(mine[n].name for n in bad[:5]) + (" …" if len(bad) > 5 else "") +
+                     " — check the spelling in Icon names….</span>")
+        self.custom_info.setText(text)
+
+    def show_names(self) -> None:
+        from .icon_names import IconNamesDialog
+        dlg = IconNamesDialog(self, self.base.currentText().strip(), self.custom_folder)
+        dlg.icons_changed.connect(self._names_changed)
+        dlg.exec()
+
+    def _names_changed(self) -> None:
+        self.refresh_custom()
+        self.icons_changed.emit()
 
     def _mode_changed(self, *_):
         image = self.mode.currentData() == "image"
@@ -199,6 +324,7 @@ class IconsTab(QWidget):
         return signature.default_dir(t, p) if p else None
 
     def refresh_grid(self):
+        """Redraw the 14 signature slots from the files on disk."""
         have = signature.existing(self._sig_dir())
         selected = set(self._selected())
         self.grid.clear()
@@ -224,6 +350,7 @@ class IconsTab(QWidget):
 
     # --- actions ------------------------------------------------------------------------
     def detect(self):
+        """Find the image AI at the URL and list its models."""
         try:
             b = imagegen.detect(self.url.text().strip())
         except imagegen.ImageGenError as e:
@@ -242,6 +369,7 @@ class IconsTab(QWidget):
         return self.model.currentText().strip()
 
     def _fill_models(self, backend) -> None:
+        """The model menu: default, auto (best fit) and every checkpoint the image AI has."""
         keep = self._model()
         names = backend.models()
         default, auto = backend.default_model(), imagegen.pick_model(names)
@@ -265,6 +393,7 @@ class IconsTab(QWidget):
         return theme, sig
 
     def make(self, only: list[str] | None):
+        """Make all signature icons, or `only` these, with the chosen maker."""
         if self.thread:
             return
         prep = self._prepare()
@@ -284,6 +413,7 @@ class IconsTab(QWidget):
         self._run(job, self.mode.currentData(), sig)
 
     def import_dir(self):
+        """Import images named after the slots from a folder."""
         prep = self._prepare()
         if not prep:
             return
@@ -326,6 +456,7 @@ class IconsTab(QWidget):
             self.icons_changed.emit()
 
     def _run(self, job, mode, sig):
+        """Start `job` on a worker thread; progress goes to the status line."""
         self.make_all.setEnabled(False)
         self.remake.setEnabled(False)
         self._say("Starting…")
@@ -351,6 +482,7 @@ class IconsTab(QWidget):
         self._say(msg, True)
 
     def _finished(self, done: list, mode: str, sig: Path):
+        """A job ended: switch the generated set on, record the folder, refresh."""
         self._stop()
         t = self.get_theme()
         t.iconset.generate = True

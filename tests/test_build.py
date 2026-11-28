@@ -45,7 +45,8 @@ def test_build_tree(built):
                 f"lookandfeel/{t.id}/contents/splash/images/background.png",
                 f"plasma/{t.slug}/metadata.json", f"plasma/{t.slug}/widgets/panel-background.svg",
                 f"aurorae/{t.decoration_name}/decoration.svg", f"kvantum/{t.slug}/{t.slug}.kvconfig",
-                f"cursors/{t.cursors_name}/index.theme", f"cursors/{t.cursors_name}/cursors_scalable/default/default.svg",
+                f"cursors/{t.cursors_name}/index.theme",
+                f"cursors/{t.cursors_name}/cursors_scalable/default/default.svg",
                 "login/apply.sh", "login/greeter.sh", "wallpapers/my wall.png",
                 f"konsole/{t.slug}.colorscheme"]:
         assert (out / rel).exists(), rel

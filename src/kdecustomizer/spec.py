@@ -1,6 +1,8 @@
 """Theme spec: the single source of truth a theme is built from (TOML on disk)."""
 from __future__ import annotations
 
+import copy
+
 import re
 import tomllib
 from dataclasses import asdict, dataclass, field, fields
@@ -12,6 +14,8 @@ from . import color
 
 @dataclass
 class Palette:
+    """The theme's colors; empty optional ones (link, visited…) are derived by resolved()."""
+
     background: str = "#1e1f29"
     surface: str = "#282a36"
     foreground: str = "#e6e6f0"
@@ -31,6 +35,8 @@ class Palette:
 
 @dataclass
 class Panel:
+    """One Plasma panel and its widgets (plugin ids, in order)."""
+
     location: str = "bottom"          # top | bottom | left | right
     height: int = 44
     floating: bool = True
@@ -48,6 +54,8 @@ class Panel:
 
 @dataclass
 class Decoration:
+    """Window decoration: title bar buttons, and the generated Aurorae theme's shape."""
+
     library: str = "org.kde.breeze"   # installed decoration (ignored if generate)
     theme: str = "Breeze"
     buttons_left: str = "M"           # KWin button codes: M menu, S on-all-desktops, H help,
@@ -65,6 +73,8 @@ class Decoration:
 
 @dataclass
 class PlasmaStyle:
+    """Generated Plasma style: blur, transparency, corner radius, outline."""
+
     generate: bool = False            # build a palette-matched Plasma style; overrides `plasma_style`
     blur: bool = True                 # blur + contrast behind translucent panels/popups
     adaptive_transparency: bool = True  # panels go opaque when a window is maximized
@@ -108,6 +118,7 @@ class CursorSet:
 @dataclass
 class Apps:
     """Other terminals/editors in the theme; each only when that app is installed."""
+
     kitty: bool = True
     alacritty: bool = True            # comments out alacritty.toml's own [colors] tables (restored without this)
     wezterm: bool = True              # installs a color scheme; select it in wezterm.lua (config.color_scheme)
@@ -149,12 +160,15 @@ class LoginScreen:
 
 @dataclass
 class IconSet:
+    """Generated icon theme: base, signature icons, app icon restyling, your own icons."""
+
     generate: bool = False            # build an icon theme matched to the palette; overrides `icons`
     base: str = "Papirus-Dark"        # installed SVG icon theme to recolor and inherit from
     signature: str = "none"           # custom "signature" icons on top: none | svg (AI-drawn) | image (local image AI)
     style: str = ""                   # look of the signature icons, e.g. "brushed gold metal, dark glass"
     signature_dir: str = ""           # folder of generated signature icons (relative to the spec file)
     app_icons: str = "keep"           # keep | recolor (every app's own logo on a graphite plate + accent rim)
+    custom_dir: str = ""              # folder of your own icons, <icon-name>.svg|png (relative to the spec); they win
 
     APP_ICONS = ("keep", "recolor")
 
@@ -171,6 +185,8 @@ class Fonts:
 
 @dataclass
 class Theme:
+    """A whole theme = one spec file. Derived names (slug, *_name) are properties."""
+
     id: str = "org.kdecustomizer.untitled"
     name: str = "Untitled"
     author: str = ""
@@ -279,6 +295,7 @@ def _build(cls, data: dict[str, Any]):
 
 
 def from_dict(data: dict[str, Any]) -> Theme:
+    """A Theme from parsed TOML: nested tables to dataclasses, unknown keys rejected, values checked."""
     data = dict(data)
     sub = {
         "palette": lambda d: _build(Palette, d),
@@ -332,6 +349,7 @@ def from_dict(data: dict[str, Any]) -> Theme:
 
 
 def load(path: str | Path) -> Theme:
+    """Read a spec file; relative paths in it resolve against its folder; colors are validated."""
     path = Path(path)
     with path.open("rb") as f:
         theme = from_dict(tomllib.load(f))
@@ -340,9 +358,10 @@ def load(path: str | Path) -> Theme:
         if not wp.is_absolute():
             wp = path.parent / wp
         theme.wallpaper = str(wp.resolve())
-    if theme.iconset.signature_dir:
-        sd = Path(theme.iconset.signature_dir).expanduser()
-        theme.iconset.signature_dir = str((sd if sd.is_absolute() else path.parent / sd).resolve())
+    for attr in ("signature_dir", "custom_dir"):
+        if val := getattr(theme.iconset, attr):
+            sd = Path(val).expanduser()
+            setattr(theme.iconset, attr, str((sd if sd.is_absolute() else path.parent / sd).resolve()))
     for c in asdict(theme.palette).values():
         if c:
             color.parse(c)  # validate early
@@ -367,6 +386,7 @@ def _key(k: str) -> str:
 
 
 def dumps(theme: Theme) -> str:
+    """The theme as TOML (top-level keys, then each table, panels, tweaks)."""
     d = asdict(theme)
     out: list[str] = []
     tables: dict[str, dict] = {}
@@ -377,7 +397,8 @@ def dumps(theme: Theme) -> str:
             continue
         else:
             out.append(f"{_key(k)} = {_val(v)}")
-    for name in ("palette", "plasma", "iconset", "cursorset", "widgets", "decoration", "splash_screen", "login_screen", "boot_splash", "gtk", "apps", "light_dark", "fonts"):
+    for name in ("palette", "plasma", "iconset", "cursorset", "widgets", "decoration", "splash_screen", "login_screen",
+                 "boot_splash", "gtk", "apps", "light_dark", "fonts"):
         out.append(f"\n[{name}]")
         out += [f"{_key(k)} = {_val(v)}" for k, v in tables[name].items()]
     for p in d["panels"]:
@@ -391,8 +412,19 @@ def dumps(theme: Theme) -> str:
 
 
 def save(theme: Theme, path: str | Path) -> None:
+    """Write the spec. Absolute paths to files inside the spec's folder are stored relative to it, so the folder
+    can be moved or shared (load() resolves them again)."""
     fix_id(theme)
-    Path(path).write_text(dumps(theme))
+    folder = Path(path).resolve().parent
+    out = copy.deepcopy(theme)
+    for obj, attr in ((out, "wallpaper"), (out.iconset, "signature_dir"), (out.iconset, "custom_dir")):
+        val = getattr(obj, attr)
+        if val and Path(val).is_absolute():
+            try:
+                setattr(obj, attr, str(Path(val).resolve().relative_to(folder)))
+            except ValueError:
+                pass
+    Path(path).write_text(dumps(out))
 
 
 def fix_id(theme: Theme) -> Theme:

@@ -43,6 +43,7 @@ def _data_dirs() -> list[Path]:
 
 
 def parse_kconfig(text: str) -> Config:
+    """KConfig text -> {(group, subgroup…): {key: value}} (key flags like [$e] dropped)."""
     out: Config = {}
     groups: tuple[str, ...] = ()
     for line in text.splitlines():
@@ -126,6 +127,7 @@ def _marked(meta: Path) -> bool:
 
 
 def _palette(globals_: Config) -> spec.Palette:
+    """The palette from kdeglobals' color groups (surface = Window's alternate, so our schemes round-trip)."""
     p = spec.Palette()
     # field -> where to read it, first present wins (surface = what colors.scheme() writes as Window's alternate)
     pick = {
@@ -276,6 +278,7 @@ def take(name: str = "My Desktop") -> Theme:
 
 
 def summary(t: Theme) -> str:
+    """A few lines saying what the snapshot found."""
     gen = [n for n, on in [("Plasma style", t.plasma.generate), ("icons", t.iconset.generate),
                            ("cursors", t.cursorset.generate), ("app style", t.widgets.generate),
                            ("window decoration", t.decoration.generate),

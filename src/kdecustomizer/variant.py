@@ -33,6 +33,7 @@ def _readable(c: str, bg: str, need: float, to_light: bool) -> str:
 
 
 def palette(p: spec.Palette) -> spec.Palette:
+    """The opposite palette: lightness flipped, hues kept, accent and status colors moved until readable."""
     r = p.resolved()
     to_light = color.is_dark(r.background)
     bh, bl, bs = _hls(r.background)

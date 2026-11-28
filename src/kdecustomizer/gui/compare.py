@@ -8,6 +8,8 @@ from PySide6.QtWidgets import QWidget
 
 
 class CompareView(QWidget):
+    """Two pictures (the desktop now, this theme) with a divider to drag; `resized` asks for new pictures."""
+
     resized = Signal()
 
     def resizeEvent(self, e) -> None:
@@ -49,6 +51,7 @@ class CompareView(QWidget):
         self.update()
 
     def paintEvent(self, _e) -> None:
+        """The theme on the right, the current desktop left of the divider, labels and the handle."""
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         x = round(self.width() * self.split)

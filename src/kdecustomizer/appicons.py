@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import colorsys
 import configparser
+import math
 import os
 import re
 from pathlib import Path
@@ -35,9 +36,21 @@ def _data_dirs() -> list[Path]:
     return out
 
 
-def installed_app_icons() -> list[str]:
-    """Icon names (not paths) of every visible app, sorted."""
-    names: set[str] = set()
+def installed_apps(refresh: bool = False) -> dict[str, str]:
+    """icon name -> app name for every app in the menu (visible .desktop files; the first data dir wins, like the
+    menu). Read once per set of data dirs and cached: scanning every .desktop file takes ~60 ms."""
+    key = tuple(map(str, _data_dirs()))
+    if refresh or key not in _apps_cache:
+        _apps_cache[key] = _read_apps()
+    return _apps_cache[key]
+
+
+_apps_cache: dict[tuple[str, ...], dict[str, str]] = {}
+
+
+def _read_apps() -> dict[str, str]:
+    """Scan every visible .desktop file (NoDisplay/Hidden skipped, first data dir wins) -> {icon name: app name(s)}."""
+    out: dict[str, str] = {}
     seen_ids: set[str] = set()
     for base in _data_dirs():
         apps = base / "applications"
@@ -59,8 +72,15 @@ def installed_app_icons() -> list[str]:
                 continue
             icon = e.get("Icon", "").strip()
             if icon and "/" not in icon:
-                names.add(icon[:-4] if icon.endswith((".png", ".svg", ".xpm")) else icon)
-    return sorted(names)
+                icon = icon[:-4] if icon.endswith((".png", ".svg", ".xpm")) else icon
+                name = e.get("Name", f.stem)
+                out[icon] = f"{out[icon]}, {name}" if icon in out and name not in out[icon] else name
+    return dict(sorted(out.items()))
+
+
+def installed_app_icons() -> list[str]:
+    """Icon names (not paths) of every visible app, sorted."""
+    return list(installed_apps())
 
 
 # --- finding the icon the user sees ---------------------------------------------------------------
@@ -83,6 +103,7 @@ def theme_chain(name: str) -> list[str]:
     out: list[str] = []
 
     def walk(n: str) -> None:
+        """Depth-first over Inherits=, each theme once."""
         if n in out:
             return
         out.append(n)
@@ -100,10 +121,20 @@ def theme_chain(name: str) -> list[str]:
 
 
 class IconFinder:
-    """name -> best source file (SVG first, then the biggest PNG) along a theme chain, indexed once."""
+    """name -> best source file (SVG first, then the biggest PNG) along a theme chain, indexed once.
+    Use `IconFinder.get(base)`: the index (often 100k+ files) is cached per theme and data dirs."""
+
+    _cache: dict[tuple, "IconFinder"] = {}
+
+    @classmethod
+    def get(cls, base: str, refresh: bool = False) -> "IconFinder":
+        key = (base, tuple(map(str, _data_dirs())), str(Path.home()))
+        if refresh or key not in cls._cache:
+            cls._cache[key] = cls(base)
+        return cls._cache[key]
 
     def __init__(self, base: str):
-        self.files: dict[str, Path] = {}
+        self.files: dict[str, str] = {}
         for theme in theme_chain(base):
             tdirs = _theme_dirs(theme)
             # one directory list per theme: base dirs without index.theme (e.g. ~/.local/share/icons/hicolor)
@@ -113,11 +144,7 @@ class IconFinder:
             for tdir in tdirs:
                 self._add(tdir, dirs or self._guess_dirs(tdir))
         for d in _data_dirs():                      # last resort, like the icon spec
-            pix = d / "pixmaps"
-            if pix.is_dir():
-                for f in pix.iterdir():
-                    if f.suffix in (".svg", ".png"):
-                        self.files.setdefault(f.stem, f)
+            self._scan(str(d / "pixmaps"))
 
     @staticmethod
     def _app_dirs(cp: configparser.ConfigParser) -> list[str]:
@@ -147,14 +174,23 @@ class IconFinder:
         return sorted((d for d in found if "symbolic" not in d), key=size, reverse=True)
 
     def _add(self, tdir: Path, dirs: list[str]) -> None:
+        # first theme / base dir / biggest size that has the name wins: the icon the user sees
         for d in dirs:
-            p = tdir / d
-            if not p.is_dir():
-                continue
-            for f in p.iterdir():
-                if f.suffix in (".svg", ".png"):
-                    # first theme / base dir / biggest size that has the name wins: the icon the user sees
-                    self.files.setdefault(f.stem, f)
+            self._scan(os.path.join(tdir, d))
+
+    def _scan(self, folder: str) -> None:
+        """Index one folder's .svg/.png files (os.scandir + string ops: Path objects per file cost ~2 s on big
+        themes)."""
+        try:
+            entries = os.scandir(folder)
+        except OSError:
+            return
+        files = self.files
+        with entries:
+            for e in entries:
+                name = e.name
+                if name.endswith((".svg", ".png")) and name[:-4] not in files:
+                    files[name[:-4]] = e.path
 
     def find(self, name: str) -> Path | None:
         f = self.files.get(name)
@@ -188,7 +224,7 @@ def _lightness(c: color.RGB) -> float:
 
 
 def _dist(a: color.RGB, b: color.RGB) -> float:
-    return sum((x - y) ** 2 for x, y in zip(a, b)) ** 0.5
+    return math.dist(a, b)          # C implementation: called ~100k times per icon by find_plate
 
 
 def find_plate(img) -> color.RGB | None:
@@ -301,7 +337,7 @@ def _logo_is_dark(img, plate: color.RGB) -> bool:
 def restyle(img, st):
     """Plated icon -> graphite gradient plate + accent rim, logo untouched (or flipped light if dark).
     Returns None for a free-standing logo (nothing to restyle)."""
-    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtCore import QPointF
     from PySide6.QtGui import QColor, QImage, QLinearGradient, QPainter, qRgba
     plate = find_plate(img)
     if plate is None:
@@ -362,6 +398,7 @@ def restyle(img, st):
 
 
 def svg_wrap(img) -> str:
+    """QImage -> an SVG that embeds it as a PNG (one scalable file the icon loader serves at every size)."""
     from PySide6.QtCore import QBuffer, QByteArray, QIODevice
     ba = QByteArray()
     buf = QBuffer(ba)
@@ -376,7 +413,7 @@ def svg_wrap(img) -> str:
 
 def build_into(theme: Theme, out: Path, skip: set[str], only: set[str] | None = None) -> tuple[dict, int]:
     """Write recolored app icons into out/APPS_DIR. Returns ({dir: index keys}, count)."""
-    finder = IconFinder(theme.iconset.base)
+    finder = IconFinder.get(theme.iconset.base)
     names = sorted(only) if only is not None else installed_app_icons()
     st = stops(theme)
     d = out / APPS_DIR

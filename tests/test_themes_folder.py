@@ -1,5 +1,4 @@
 """Default themes folder and naming: system.themes_dir, spec helpers, `kdec new <name>`, the editor's first save."""
-import os
 
 import pytest
 
