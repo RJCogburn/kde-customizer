@@ -61,7 +61,7 @@ def cmd_apply(a) -> int:
     if a.dry_run:
         print(script.read_text())
         return 0
-    return subprocess.call([str(script)] + (["--layout"] if a.layout else []))
+    return subprocess.call([str(script)] + (["--layout"] if a.layout else []) + builder.skip_args(a.skip))
 
 
 def cmd_wallpaper(a) -> int:
@@ -148,6 +148,16 @@ def cmd_palette(a) -> int:
     if not a.dry_run:
         spec.save(theme, a.spec)
     return 0
+
+
+def cmd_doctor(a) -> int:
+    """What works on this machine; exit 1 if something every theme needs is missing."""
+    from . import doctor
+    name, family = doctor.distro()
+    print(f"{name} ({family or 'unknown family: install commands are generic'})\n")
+    checks = doctor.run(a.image_url)
+    print(doctor.report(checks))
+    return 1 if any(c.required and not c.ok for c in checks) else 0
 
 
 def cmd_layout(a) -> int:
@@ -305,6 +315,9 @@ def main(argv: list[str] | None = None) -> int:
             s.add_argument("--dry-run", action="store_true", help="print the script instead of running it")
         if name == "apply":
             s.add_argument("--layout", action="store_true", help="also replace panels with the theme's layout")
+            s.add_argument("--skip", action="append", default=[], metavar="PART",
+                           choices=list(builder.SKIP_PARTS),
+                           help="leave this part as it is this time (repeatable): " + ", ".join(builder.SKIP_PARTS))
         s.set_defaults(fn=fn)
 
     s = sub.add_parser("wallpaper", help="render a wallpaper in the theme's palette with your local image AI")
@@ -339,7 +352,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--dry-run", action="store_true", help="print the palette without saving it")
     s.set_defaults(fn=cmd_palette)
 
-    s = sub.add_parser("check", help="warn about unreadable colors and themes that aren't installed")
+    s = sub.add_parser("doctor", help="check which optional parts work here, with install commands for this distro")
+    s.add_argument("--image-url", action="append", metavar="URL", help="where your image AI runs (repeatable)")
+    s.set_defaults(fn=cmd_doctor)
+
+    s = sub.add_parser("check",help="warn about unreadable colors and themes that aren't installed")
     s.add_argument("spec")
     s.set_defaults(fn=cmd_check)
 

@@ -102,7 +102,19 @@ login/apply.sh build/<Slug>` writes everything under <tmp>. For Plasma Login, th
 gray background — the wallpaper is a separate process) and screenshot it.
 
 ## GUI
-`gui/app.py` = editor tabs (left) + `gui/preview.py` live preview (right) + `gui/ai_panel.py` on top.
+`gui/app.py` = editor sections (left; `gui/sections.py` = sidebar list + stack with QTabWidget's API, so
+`self.tabs` still has addTab/tabText/setCurrentIndex) + `gui/preview.py` live preview (right) + `gui/ai_panel.py` on top.
+"Compare with my desktop" (`gui/compare.py`): `snapshot.take()` once, both sides rendered by offscreen Previews
+(resizing the live one, a page of the same stack, loops) with a draggable divider; follows edits via `_show_preview`.
+Autosave: `_commit()`/`set_theme(dirty)` write `library.autosave()` (`$XDG_STATE_HOME/kde-customizer/autosave/`);
+a window only ever clears the copy it wrote (`_kept`), so another session's leftovers wait for the start page's
+Recover/Discard banner. Apply: `gui/apply_summary.py` lists `always()` + skippable `parts()` → install.sh args
+(`build.SKIP_PARTS`, `--no-*`; skipped = untouched, not undone; unticked remembered in QSettings per theme id).
+`gui/setup_dialog.py` = `doctor.py` (`kdec doctor`: optional tools + per-distro install commands from os-release).
+Shared themes: `library.unpack_shared()` (refuses links/escapes, needs `<dir>/theme.toml`) into `themes_dir()`;
+the GUI opens the spec and rebuilds, never runs the archive's install.sh. Drops: `.toml` opens, `.tar.gz` installs.
+Colors › Variations: `variations.py` (accent ±30°/opposite, warmer/cooler = neutrals tinted to a hue, contrast,
+saturation; all through `variant._readable`), `gui/variations_dialog.py` previews them; `_set_palette` = one undo step.
 The preview paints a mock desktop on a fixed 1280x800 canvas from `colors.scheme()` / `konsole.ansi()` — the
 same functions the generators use, so never derive colors in the GUI. Icons come from the theme's icon set via
 `IconCache` (temporarily switches `QIcon.themeName`). AI work runs in a QThread; connect worker signals to
@@ -178,6 +190,8 @@ kdec check mytheme.toml                    # contrast + installed-theme warnings
 kdec revert [--list] [N]                   # undo the last install (restore points)
 kdec installed [--remove NAME [--dry-run]] # themes we installed; remove one with all its parts
 kdec palette mytheme.toml [image] [--dark|--light] [--dry-run]   # palette from an image (default: wallpaper)
+kdec apply mytheme.toml --skip gtk --skip boot   # install.sh --no-gtk --no-boot (parts left as they are)
+kdec doctor [--image-url URL]              # optional tools present? install commands for this distro
 kdec wallpaper mytheme.toml "idea"         # wallpaper in the palette via the local image AI
 QT_QPA_PLATFORM=offscreen pytest -q        # test suite (pip install -e '.[gui,test]')
 kdec ai "warm autumn, dock panel" [--from mytheme.toml] [--provider claude-code(default)|claude|openai|gemini|openrouter|ollama|lmstudio --model M]

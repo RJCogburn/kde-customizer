@@ -80,19 +80,28 @@ Ubuntu, Debian, Fedora, openSUSE and Arch, and attaches the files to the GitHub 
 **GUI:** `kdec-gui` (or `kdec-gui mytheme.toml`)
 
 It opens on a start page with your recent themes and nine starting points (five dark, four light), each shown
-as a small preview. Pick one, start from scratch, or **From my desktop**.
+as a small preview. Pick one, start from scratch, or **From my desktop**. **Install a shared theme…** (or
+dropping a `.tar.gz` someone exported on the window) unpacks it into your themes folder and opens it; Apply
+then rebuilds it here, so the archive's own script never runs. **Setup check** lists which optional parts
+work on your computer (Kvantum, Plymouth, a login manager, the image AI…) with the install command for your
+distribution. If the app closed without saving, the start page offers to **Recover** your changes.
 
 ![Start page: recent themes and the built-in starting points](docs/start-page.png)
 
-Edit colors, panels, fonts and the rest in the tabs on the left. The preview on the right redraws as you
-type and uses the theme's own icon set. **Ctrl+Z / Ctrl+Shift+Z** undo and redo any change, including AI
-changes. A yellow strip above the tabs lists anything to fix (hard-to-read colors, an icon or cursor theme
-that isn't installed…), with a link to the tab where it's fixed. **Colors from an image** on the Colors tab
-makes a readable palette from the wallpaper or any picture.
+Edit colors, panels, fonts and the rest in the sections on the left. The preview on the right redraws as you
+type and uses the theme's own icon set; **Compare with my desktop** puts your current desktop next to it,
+with a divider to drag. **Ctrl+Z / Ctrl+Shift+Z** undo and redo any change, including AI changes. A yellow
+strip above the sections lists anything to fix (hard-to-read colors, an icon or cursor theme that isn't
+installed…), with a link to where it's fixed. On the Colors page, **Colors from an image** makes a readable
+palette from the wallpaper or any picture, and **Variations…** shows nearby palettes (accent turned, warmer,
+cooler, more contrast, more or less color) as previews to pick from.
 
-**Apply to desktop** installs the theme and switches to it, showing each step. Afterwards you have 20 seconds
-to click **Keep changes**; with no answer (or **Undo**) the desktop goes back to how it was, like the display
-settings do. **Installed…** lists the themes kde-customizer has installed and removes the ones you don't use.
+**Apply to desktop** first lists what will change, with a checkbox for each part you can leave as it is this
+time (wallpaper, panels, GTK apps, terminals, Firefox/Thunderbird, VS Code, tweaks, login screen, boot
+splash); it remembers your choice per theme. Then it installs the theme and switches to it, showing each step.
+Afterwards you have 20 seconds to click **Keep changes**; with no answer (or **Undo**) the desktop goes back
+to how it was, like the display settings do. **Installed…** lists the themes kde-customizer has installed and
+removes the ones you don't use.
 **From Desktop** starts a theme from what you're running now. **Show:** above the preview opens the app
 launcher, calendar, system tray or an app dialog in your theme (or click the launcher, clock or tray in the
 preview's panel). The **Tweaks** tab edits any KDE setting,
@@ -108,12 +117,14 @@ kdec snapshot mydesktop.toml           # spec from your current desktop: colors,
 kdec build mytheme.toml                # -> build/<Name>/
 kdec apply mytheme.toml --dry-run      # show what would change
 kdec apply mytheme.toml [--layout]     # install + apply (--layout also replaces your panels)
+kdec apply mytheme.toml --skip gtk --skip boot   # leave parts as they are this time (see kdec apply -h)
 kdec export mytheme.toml               # shareable <Name>.tar.gz including the wallpaper
 kdec check mytheme.toml                # readability (contrast) and missing-theme warnings
 kdec revert                            # undo the last apply (kdec revert --list, kdec revert 2, …)
 kdec wallpaper mytheme.toml "misty mountains at dusk"   # render a wallpaper in the palette (local image AI)
 kdec palette mytheme.toml [image]      # colors from an image (default: the theme's wallpaper); --dark/--light
 kdec installed                         # themes kde-customizer installed; --remove NAME deletes one
+kdec doctor                            # which optional parts work here, with install commands for your distro
 ```
 
 **Undo:** every install first records your current desktop (colors, styles, icons, cursors, fonts, wallpaper,
@@ -129,8 +140,9 @@ Ghostty, Alacritty, Konsole and Firefox (on its next start) along with it. Apps 
 instead of Kvantum, because a Kvantum style can't switch with the colors.
 
 Someone you share an export with only needs `tar xzf Name.tar.gz && ./Name/install.sh`.
-Themes with `[login_screen]` or `[boot_splash]` ask for the admin password once (only when those parts changed);
-`./install.sh --no-login` / `--no-boot` skip them.
+Themes with `[login_screen]` or `[boot_splash]` ask for the admin password once (only when those parts changed).
+`./install.sh` leaves a part exactly as it is with `--no-login`, `--no-boot`, `--no-wallpaper`, `--no-gtk`,
+`--no-terminals`, `--no-browsers`, `--no-vscode` or `--no-tweaks` (the header of install.sh lists them).
 
 ## Tests
 

@@ -1,13 +1,14 @@
 """Start page: recent themes and the built-in starting points as preview cards, plus New / From Desktop / Open."""
 from __future__ import annotations
 
+import html
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QDateTime, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QFont, QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QListView, QListWidget, QListWidgetItem, QMenu, QPushButton, QScrollArea, QVBoxLayout,
-    QWidget,
+    QFrame, QHBoxLayout, QLabel, QListView, QListWidget, QListWidgetItem, QMenu, QPushButton, QScrollArea,
+    QVBoxLayout, QWidget,
 )
 
 from .. import library, spec
@@ -87,6 +88,10 @@ class StartPage(QWidget):
     open_path = Signal(str)          # a recent theme
     open_starter = Signal(str)       # a built-in starting point (opens as a new, unsaved theme)
     manage = Signal()
+    recover = Signal()               # unsaved changes kept from last time
+    discard_recovery = Signal()
+    setup_check = Signal()
+    install_shared = Signal()        # a theme someone exported (.tar.gz)
 
     def __init__(self):
         super().__init__()
@@ -111,14 +116,41 @@ class StartPage(QWidget):
         sub.setWordWrap(True)
         v.addWidget(sub)
 
+        # unsaved changes from last time (the app was closed without saving, or crashed)
+        self.recovery = QFrame()
+        self.recovery.setObjectName("recovery")
+        self.recovery.setStyleSheet("#recovery { background: rgba(61, 174, 233, 0.14); border: 1px solid "
+                                    "rgba(61, 174, 233, 0.6); border-radius: 6px; }")
+        rh = QHBoxLayout(self.recovery)
+        rh.setContentsMargins(10, 6, 6, 6)
+        icon = QLabel()
+        icon.setPixmap(QIcon.fromTheme("document-revert").pixmap(22, 22))
+        rh.addWidget(icon)
+        self.recovery_text = QLabel()
+        self.recovery_text.setWordWrap(True)
+        rh.addWidget(self.recovery_text, 1)
+        b = QPushButton(QIcon.fromTheme("document-open-recent"), "Recover")
+        b.clicked.connect(self.recover)
+        rh.addWidget(b)
+        b = QPushButton(QIcon.fromTheme("edit-delete"), "Discard")
+        b.setToolTip("Throw these changes away")
+        b.clicked.connect(self.discard_recovery)
+        rh.addWidget(b)
+        v.addWidget(self.recovery)
+
         row = QHBoxLayout()
         for text, icon, sig, tip in [
             ("New theme", "document-new", self.new_theme, "Start from the default colors"),
             ("From my desktop", "camera-photo", self.from_desktop,
              "Start from what your desktop looks like now: colors, styles, fonts, panels and wallpaper"),
-            ("Open…", "document-open", self.open_file, "Open a theme file (.toml)"),
+            ("Open…", "document-open", self.open_file,
+             "Open a theme file (.toml) — or drop one, or a shared .tar.gz, on this window"),
+            ("Install a shared theme…", "document-import", self.install_shared,
+             "Install a theme someone exported for you (.tar.gz)"),
             ("Installed themes…", "preferences-desktop-theme-global", self.manage,
              "See and remove the themes kde-customizer has installed"),
+            ("Setup check", "tools-report-bug", self.setup_check,
+             "Which optional parts work on this computer, and how to install the ones that don't"),
         ]:
             b = QPushButton(QIcon.fromTheme(icon), text)
             b.setToolTip(tip)
@@ -159,8 +191,17 @@ class StartPage(QWidget):
         v.addWidget(lbl)
         return lbl
 
-    def refresh(self) -> None:
-        """Re-read the recent list (the starters never change)."""
+    def refresh(self, recovery: bool = True) -> None:
+        """Re-read the recent list and kept changes (the starters never change). `recovery`=False: the kept changes
+        are the editor's own, still open."""
+        kept = library.autosaved() if recovery else None
+        if kept:
+            _, path, name, when = kept
+            stamp = QDateTime.fromSecsSinceEpoch(int(when)).toString("ddd d MMM, hh:mm")
+            where = f" ({path.name})" if path else " (never saved)"
+            self.recovery_text.setText(f"<b>Unsaved changes to “{html.escape(name)}”</b>{html.escape(where)} were "
+                                       f"kept from {stamp}.")
+        self.recovery.setVisible(bool(kept))
         self._fill(self.recent, library.recent(), lambda p, t: t.name, lambda p, t: str(p))
         has = self.recent.count() > 0
         self.recent_label.setVisible(has)

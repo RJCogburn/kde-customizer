@@ -172,7 +172,9 @@ class AIPanel(QWidget):
         self.go = QPushButton(QIcon.fromTheme("tools-wizard"), "Generate")
         self.go.setDefault(True)
         self.go.clicked.connect(self.generate)
-        self.undo = QPushButton(QIcon.fromTheme("edit-undo"), "Undo")
+        # icon only (the toolbar's Undo / Ctrl+Z is the same): leaves room for "Match wallpaper" in a narrow pane
+        self.undo = QToolButton(icon=QIcon.fromTheme("edit-undo"), toolTip="Undo the AI's change (Ctrl+Z)")
+        self.undo.setAutoRaise(False)
         self.undo.setEnabled(False)
         row.addWidget(self.use_wp)
         row.addStretch()

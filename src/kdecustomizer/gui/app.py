@@ -11,10 +11,10 @@ from pathlib import Path
 from PySide6.QtCore import QProcess, QStandardPaths, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QFont, QIcon, QKeySequence
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QColorDialog, QComboBox, QDockWidget, QFileDialog,
+    QAbstractItemView, QApplication, QCheckBox, QColorDialog, QComboBox, QDialog, QDockWidget, QFileDialog,
     QFontDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow,
-    QHeaderView, QInputDialog, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QSplitter, QStackedWidget, QTabWidget,
-    QTableWidget, QTableWidgetItem, QToolBar, QToolButton, QVBoxLayout, QWidget,
+    QHeaderView, QInputDialog, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QSplitter,
+    QStackedWidget, QTableWidget, QTableWidgetItem, QToolBar, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .. import build as builder
@@ -22,7 +22,10 @@ from .. import ai, color, library, spec, system
 from .. import cursorset, iconset
 from .ai_panel import AIPanel
 from .apply_dialog import ApplyDialog
+from .apply_summary import ApplySummary
+from .compare import CompareView
 from .manager import ThemeManager
+from .sections import Sections
 from .start import StartPage
 from .icons_tab import IconsTab
 from .preview import Preview, ensure_icon_paths
@@ -207,22 +210,22 @@ class Main(QMainWindow):
         self.theme = spec.Theme()
         self.dirty = False
         self._loading = False
+        self._kept = False              # this window wrote the autosave (unsaved changes kept for recovery)
         self.installed = system.summary()
 
         self.preview = Preview()
-        self.tabs = QTabWidget()
-        self.tabs.setDocumentMode(True)
-        self.tabs.addTab(self._theme_tab(), "Theme")
-        self.tabs.addTab(self._colors_tab(), "Colors")
-        self.tabs.addTab(self._desktop_tab(), "Desktop")
+        self.tabs = Sections()
+        self.tabs.addTab(self._theme_tab(), "Theme", "documentinfo")
+        self.tabs.addTab(self._colors_tab(), "Colors", "preferences-desktop-color")
+        self.tabs.addTab(self._desktop_tab(), "Desktop", "preferences-desktop-theme-global")
         self.icons_tab = IconsTab(lambda: self.theme, lambda: self.path, self._ensure_saved)
         self.icons_tab.changed.connect(self.changed)
         self.icons_tab.icons_changed.connect(self._schedule_icons)
         self.icons_tab.generate.toggled.connect(lambda on: self.text["icons"].setEnabled(not on))
-        self.tabs.addTab(scroll(self.icons_tab), "Icons")
-        self.tabs.addTab(self._panels_tab(), "Panels")
-        self.tabs.addTab(self._fonts_tab(), "Fonts")
-        self.tabs.addTab(self._tweaks_tab(), "Tweaks")
+        self.tabs.addTab(scroll(self.icons_tab), "Icons", "preferences-desktop-icons")
+        self.tabs.addTab(self._panels_tab(), "Panels", "preferences-desktop-plasma")
+        self.tabs.addTab(self._fonts_tab(), "Fonts", "preferences-desktop-font")
+        self.tabs.addTab(self._tweaks_tab(), "Tweaks", "configure")
 
         self.ai = AIPanel(lambda: self.from_form())
         self.ai.theme_ready.connect(self._ai_theme)
@@ -249,7 +252,7 @@ class Main(QMainWindow):
         lv.addWidget(line)
         lv.addWidget(self.problems)
         lv.addWidget(self.tabs, 1)
-        left.setMinimumWidth(380)
+        left.setMinimumWidth(440)
 
         right = QWidget()
         rv = QVBoxLayout(right)
@@ -262,18 +265,31 @@ class Main(QMainWindow):
         self.popup.setToolTip("Preview a popup or dialog (you can also click the launcher, clock or tray "
                               "in the preview's panel)")
         self.popup.currentIndexChanged.connect(lambda i: self.preview.set_popup(self.popup.itemData(i)))
+        self.popup.currentIndexChanged.connect(lambda _i: self._update_compare())
         self.preview.popupChanged.connect(lambda key: self.popup.setCurrentIndex(max(0, self.popup.findData(key))))
+        self.compare_btn = QToolButton(text="Compare with my desktop", icon=QIcon.fromTheme("view-split-left-right"),
+                                       toolButtonStyle=Qt.ToolButtonTextBesideIcon, checkable=True)
+        self.compare_btn.setToolTip("Your desktop as it is now next to this theme — drag the divider")
+        self.compare_btn.toggled.connect(self.set_compare)
+        bar.addWidget(self.compare_btn)
         bar.addStretch()
         bar.addWidget(QLabel("Show:"))
         bar.addWidget(self.popup)
         rv.addLayout(bar)
-        rv.addWidget(self.preview, 1)
+        self.compare = CompareView()
+        self.compare.resized.connect(self._update_compare)
+        self._now_theme: spec.Theme | None = None
+        self._now_preview: Preview | None = None
+        self.right_stack = QStackedWidget()
+        self.right_stack.addWidget(self.preview)
+        self.right_stack.addWidget(self.compare)
+        rv.addWidget(self.right_stack, 1)
 
         split = QSplitter()
         split.addWidget(left)
         split.addWidget(right)
         split.setStretchFactor(1, 1)
-        split.setSizes([420, 860])
+        split.setSizes([500, 820])
         split.setChildrenCollapsible(False)
         self.start = StartPage()
         self.start.new_theme.connect(self.new)
@@ -282,6 +298,11 @@ class Main(QMainWindow):
         self.start.open_path.connect(lambda p: self._open_path(Path(p)))
         self.start.open_starter.connect(lambda p: self.open_starter(Path(p)))
         self.start.manage.connect(self.manage_themes)
+        self.start.recover.connect(self.recover)
+        self.start.discard_recovery.connect(self.discard_recovery)
+        self.start.setup_check.connect(self.setup_check)
+        self.start.install_shared.connect(lambda: self.install_shared(None))
+        self.setAcceptDrops(True)
         self.stack = QStackedWidget()
         self.stack.addWidget(self.start)
         self.stack.addWidget(split)
@@ -293,7 +314,7 @@ class Main(QMainWindow):
 
         # Coalesce rapid edits (typing, dragging in the color dialog) into one repaint.
         self._refresh = QTimer(self, singleShot=True, interval=60)
-        self._refresh.timeout.connect(lambda: self.preview.show_theme(self.theme))
+        self._refresh.timeout.connect(self._show_preview)
         # The generated icon set is rebuilt into a cache dir for the preview (debounced: ~0.2 s per build).
         self._icons_timer = QTimer(self, singleShot=True, interval=500)
         self._icons_timer.timeout.connect(self._build_preview_icons)
@@ -461,7 +482,14 @@ class Main(QMainWindow):
             self.img_mode.addAction(a)
         menu.aboutToShow.connect(lambda: self.img_wallpaper.setEnabled(bool(self.theme.wallpaper)))
         pick.setMenu(menu)
-        v.addWidget(pick, 0, Qt.AlignLeft)
+        var = QPushButton(QIcon.fromTheme("color-management"), "Variations…")
+        var.setToolTip("Nearby palettes (accent turned, warmer, cooler, more contrast…) as previews to pick from")
+        var.clicked.connect(self.palette_variations)
+        row = QHBoxLayout()
+        row.addWidget(pick)
+        row.addWidget(var)
+        row.addStretch()
+        v.addLayout(row)
         self.contrast = QLabel()
         self.contrast.setWordWrap(True)
         self.contrast.setTextFormat(Qt.RichText)
@@ -1058,6 +1086,42 @@ class Main(QMainWindow):
         if ics.generate and key != self._icons_key:
             self._icons_timer.start()
 
+    def _show_preview(self) -> None:
+        self.preview.show_theme(self.theme)
+        if self.compare_btn.isChecked():
+            self._update_compare()
+
+    # --- compare with the desktop as it is now -----------------------------------------
+    def set_compare(self, on: bool) -> None:
+        if on and self._now_theme is None:
+            from .. import snapshot
+            try:
+                self._now_theme = snapshot.take("Your desktop now")
+            except Exception as e:      # unreadable config
+                QMessageBox.warning(self, "Compare", f"Can't read your current desktop: {e}")
+                self.compare_btn.setChecked(False)
+                return
+            # both sides from offscreen previews: resizing the live one (a page of the same stack) loops
+            self._now_preview, self._then_preview = Preview(), Preview()
+        self.right_stack.setCurrentIndex(1 if on else 0)
+        if on:
+            self._update_compare()
+
+    def _update_compare(self) -> None:
+        if not self.compare_btn.isChecked() or self._now_preview is None or getattr(self, "_comparing", False):
+            return
+        self._comparing = True
+        try:
+            images = []
+            for pv, theme in ((self._now_preview, self._now_theme), (self._then_preview, self.theme)):
+                pv.resize(self.compare.size())
+                pv.set_popup(self.popup.currentData())
+                pv.show_theme(theme)
+                images.append(pv.grab())
+            self.compare.set_images(*images, self.theme.name or "This theme")
+        finally:
+            self._comparing = False
+
     def _schedule_icons(self) -> None:
         self._icons_key = None
         self._icons_timer.start()
@@ -1135,6 +1199,41 @@ class Main(QMainWindow):
         self._committed = copy.deepcopy(self.theme)
         self._redo_stack.clear()
         self._update_undo()
+        if self.dirty:
+            self._autosave()
+
+    # --- unsaved changes kept for recovery ------------------------------------------------
+    def _autosave(self) -> None:
+        try:
+            text = spec.dumps(self.theme)
+        except Exception:           # half-typed values: keep the last good copy
+            return
+        library.autosave(text, self.path, self.theme.name)
+        self._kept = True
+
+    def _drop_autosave(self) -> None:
+        """Only ever the copy this window kept: another session's leftovers wait for Recover/Discard."""
+        if self._kept:
+            library.clear_autosave()
+            self._kept = False
+
+    def recover(self) -> None:
+        kept = library.autosaved()
+        if not kept or not self._confirm_discard():
+            return
+        file, path, _, _ = kept
+        try:
+            theme = spec.load(file)
+        except Exception as e:
+            QMessageBox.critical(self, "Recover", f"The kept changes can't be read: {e}")
+            return
+        self.path = path if path and path.exists() else None
+        self._fresh(theme, True)
+        self.statusBar().showMessage("Unsaved changes recovered. Save to keep them.", 8000)
+
+    def discard_recovery(self) -> None:
+        library.clear_autosave()
+        self.start.refresh(recovery=False)
 
     def _reset_history(self) -> None:
         self._commit_timer.stop()
@@ -1170,7 +1269,7 @@ class Main(QMainWindow):
 
     # --- start page -----------------------------------------------------------------
     def show_start(self) -> None:
-        self.start.refresh()
+        self.start.refresh(recovery=not self._kept)     # our own unsaved changes are still open in the editor
         self.stack.setCurrentIndex(0)
         for a in self._editor_actions:
             a.setEnabled(False)
@@ -1222,6 +1321,16 @@ class Main(QMainWindow):
         except Exception as e:      # unreadable image
             QMessageBox.warning(self, "Colors from an image", str(e))
             return
+        self._set_palette(pal, f"Colors taken from {path.name}. Ctrl+Z puts the old ones back.")
+
+    def palette_variations(self) -> None:
+        from .variations_dialog import VariationsDialog
+        dlg = VariationsDialog(self, copy.deepcopy(self.from_form()))
+        if dlg.exec() == QDialog.Accepted and dlg.chosen:
+            self._set_palette(dlg.chosen, "New colors. Ctrl+Z puts the old ones back.")
+
+    def _set_palette(self, pal: spec.Palette, message: str) -> None:
+        """Replace the palette as one undo step."""
         self._commit()
         self._loading = True
         for k, cf in self.colors.items():
@@ -1229,7 +1338,7 @@ class Main(QMainWindow):
         self._loading = False
         self.changed()
         self._commit()
-        self.statusBar().showMessage(f"Colors taken from {path.name}. Ctrl+Z puts the old ones back.", 8000)
+        self.statusBar().showMessage(message, 8000)
 
     def _update_title(self) -> None:
         if self.stack.currentIndex() == 0:
@@ -1252,13 +1361,20 @@ class Main(QMainWindow):
                                  QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
         if r == QMessageBox.Save:
             return self.save()
-        return r == QMessageBox.Discard
+        if r == QMessageBox.Discard:
+            self._drop_autosave()
+            return True
+        return False
 
     def set_theme(self, theme: spec.Theme, dirty: bool) -> None:
         self.theme = theme
         self.to_form()
         self.dirty = dirty
         self._update_title()
+        if dirty:
+            self._autosave()
+        else:
+            self._drop_autosave()
 
     def _fresh(self, theme: spec.Theme, dirty: bool) -> None:
         """A different theme: the undo history starts over."""
@@ -1377,6 +1493,7 @@ class Main(QMainWindow):
         spec.save(out, self.path)
         library.add_recent(self.path)
         self.dirty = False
+        self._drop_autosave()
         self._update_title()
         self.statusBar().showMessage(f"Saved {self.path}", 4000)
         return True
@@ -1465,21 +1582,15 @@ class Main(QMainWindow):
         if self.proc.state() != QProcess.NotRunning:
             return
         t = self.theme
-        system_parts = [n for on, n in [(t.login_screen.generate, "login screen"),
-                                        (t.boot_splash.generate, "boot splash")] if on]
-        r = QMessageBox.question(self, "Apply to desktop",
-                                 f"Install and apply “{t.name}” to your live desktop now?"
-                                 + ("\n\nYour current panels will be replaced." if self.with_layout.isChecked() else "")
-                                 + (f"\n\nThe {' and '.join(system_parts)} need your admin password (asked only "
-                                    "when they changed)." if system_parts else "")
-                                 + "\n\nYou'll have 20 seconds to keep the result or go back.")
-        if r != QMessageBox.Yes:
+        summary = ApplySummary(self, t, self.with_layout.isChecked())
+        if summary.exec() != QDialog.Accepted:
             return
+        self.with_layout.setChecked(summary.replace_panels)
         out = self.do_build()
         if out:
-            self.say(f"$ {out / 'install.sh'}")
-            dlg = ApplyDialog(self, t.name, out / "install.sh",
-                              ["--layout"] if self.with_layout.isChecked() else [], bool(system_parts))
+            args = summary.args()
+            self.say(f"$ {out / 'install.sh'} {' '.join(args)}".rstrip())
+            dlg = ApplyDialog(self, t.name, out / "install.sh", args, summary.needs_password())
             dlg.output.connect(self.log.appendPlainText)
             dlg.exec()
             self.statusBar().showMessage(dlg.result_text, 8000)
@@ -1513,9 +1624,59 @@ class Main(QMainWindow):
 
     def closeEvent(self, e) -> None:
         if self._confirm_discard():
+            self._drop_autosave()
             e.accept()
         else:
             e.ignore()
+
+    # --- setup check, shared themes, drag and drop -------------------------------------
+    def setup_check(self) -> None:
+        from .setup_dialog import SetupDialog
+        SetupDialog(self, [self.icons_tab.url.text().strip()]).exec()
+
+    def install_shared(self, archive: Path | None) -> None:
+        """Unpack a theme someone exported into the themes folder and open its spec (Apply rebuilds it here)."""
+        if archive is None:
+            f, _ = QFileDialog.getOpenFileName(self, "Install a shared theme", str(Path.home()),
+                                               "Shared theme (*.tar.gz *.tgz)")
+            if not f:
+                return
+            archive = Path(f)
+        if not self._confirm_discard():
+            return
+        try:
+            toml = library.unpack_shared(archive, system.themes_dir())
+            theme = spec.load(toml)
+        except Exception as e:
+            QMessageBox.critical(self, "Install a shared theme", str(e))
+            return
+        self.path = toml
+        self._fresh(theme, False)
+        library.add_recent(toml)
+        self.statusBar().showMessage(f"“{theme.name}” unpacked to {toml.parent}. Look it over, then Apply to "
+                                     "desktop.", 10000)
+
+    @staticmethod
+    def _dropped(e) -> Path | None:
+        urls = e.mimeData().urls() if e.mimeData().hasUrls() else []
+        if len(urls) != 1 or not urls[0].isLocalFile():
+            return None
+        p = Path(urls[0].toLocalFile())
+        return p if p.suffix == ".toml" or p.name.endswith((".tar.gz", ".tgz")) else None
+
+    def dragEnterEvent(self, e) -> None:
+        if self._dropped(e):
+            e.acceptProposedAction()
+
+    def dropEvent(self, e) -> None:
+        p = self._dropped(e)
+        if not p:
+            return
+        e.acceptProposedAction()
+        if p.suffix == ".toml":
+            self._open_path(p)
+        else:
+            self.install_shared(p)
 
 
 def main() -> int:

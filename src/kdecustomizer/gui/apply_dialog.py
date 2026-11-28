@@ -23,6 +23,8 @@ STEP_NAMES = {
     "icon theme": "Icons", "cursor theme": "Cursors", "app style (Kvantum)": "App style (Kvantum)",
     "window decoration": "Title bars", "gtk 4 / libadwaita": "GNOME / GTK apps", "wallpaper": "Wallpaper",
     "global theme package": "Global theme package", "applying": "Applying the theme", "tweaks": "Tweaks",
+    "settings": "Fonts and settings", "GTK 4 / libadwaita apps": "GNOME / GTK apps", "terminals": "Terminals",
+    "Firefox / Thunderbird": "Firefox / Thunderbird",
     "login screen": "Login screen", "boot splash": "Boot splash", "reloading KWin": "Reloading the window manager",
 }
 
@@ -115,6 +117,10 @@ class ApplyDialog(QDialog):
         elif self._current is not None and line.strip() and (
                 line.startswith(("skipped", "already up to date", "not updated", "Neither", "Plymouth is not",
                                  "Kvantum is not"))):
+            if line.startswith("skipped"):
+                self._current.setText(self._current.text().split("  —")[0] + "  — left as it is")
+                self._current.setToolTip(line.strip())
+                return
             self._current.setToolTip(line.strip())
             self._current.setText(f"{self._current.text().split('  —')[0]}  — {line.strip()}")
 

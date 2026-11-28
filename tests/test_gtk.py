@@ -48,8 +48,8 @@ def test_accent_text_stays_readable_on_light_views():
 def snippet(tmp_path, theme) -> str:
     out = build.build(theme, tmp_path / "b")
     sh = (out / "install.sh").read_text()
-    start = sh.index('echo "==> GTK 4')
-    end = min(i for i in (sh.find('\necho "==>', start + 10), sh.find("\nif command -v", start)) if i > 0)
+    start = sh.index("if (( GTK )); then\n") + len("if (( GTK )); then\n")   # the part --no-gtk skips
+    end = sh.index('\nelse\n  echo "==> GTK', start)
     return out, sh[start:end]
 
 
